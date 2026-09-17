@@ -1,0 +1,694 @@
+/* Nihilium design tokens.
+ *
+ * Every value here is lifted from the live site: src/styles/globals.css
+ * (:root custom properties, .periodic-table-style, the h1 rule) and the
+ * utility classes used in src/app/page.tsx and src/components/TopBar.tsx.
+ */
+
+:root {
+  /* ---- Brand colour ---- */
+  --nih-color-bg: #bfe4ed;
+  --nih-color-text: #2b2b2b;
+
+  /* Translucent card fill — cards sit on the brand background and blur it. */
+  --nih-color-surface: rgba(255, 255, 255, 0.1);
+  /* Opaque-ish fill used by form fields. */
+  --nih-color-field: rgba(255, 255, 255, 0.8);
+  /* The top bar tints the brand background rather than using a new colour. */
+  --nih-color-bar: rgba(191, 228, 237, 0.9);
+
+  --nih-color-border: #2b2b2b;
+  --nih-color-border-subtle: rgba(43, 43, 43, 0.2);
+  --nih-color-field-border: #d1d5db;
+
+  --nih-color-muted: #374151;
+  --nih-color-muted-soft: #4b5563;
+  --nih-color-on-solid: #ffffff;
+
+  --nih-color-success: #16a34a;
+  --nih-color-error: #dc2626;
+  --nih-color-accent: #2563eb;
+
+  /* ---- Typography ---- */
+  --nih-font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  /* Display and body share a stack: the site declares Roboto for h1 but never
+     loads a webfont, so headings resolve to the same system sans in practice. */
+  --nih-font-display: var(--nih-font-sans);
+
+  --nih-text-sm: 0.875rem;
+  --nih-text-base: 1rem;
+  --nih-text-lg: 1.125rem;
+  --nih-text-xl: 1.25rem;
+  --nih-text-2xl: 1.5rem;
+  --nih-text-3xl: 1.875rem;
+  --nih-text-4xl: 2.25rem;
+  --nih-text-6xl: 3.75rem;
+
+  --nih-weight-medium: 500;
+  --nih-weight-semibold: 600;
+  --nih-weight-bold: 700;
+  --nih-weight-display: 800;
+
+  --nih-tracking-display: 2px;
+  --nih-leading-normal: 1.5;
+  --nih-leading-tight: 1.2;
+
+  /* ---- Space ---- */
+  --nih-space-1: 0.25rem;
+  --nih-space-2: 0.5rem;
+  --nih-space-3: 0.75rem;
+  --nih-space-4: 1rem;
+  --nih-space-5: 1.25rem;
+  --nih-space-6: 1.5rem;
+  --nih-space-8: 2rem;
+  --nih-space-12: 3rem;
+  --nih-space-16: 4rem;
+
+  /* ---- Shape ---- */
+  --nih-radius-sm: 0.25rem;
+  --nih-radius-md: 8px;
+  --nih-radius-full: 9999px;
+  --nih-border-width: 2px;
+
+  /* ---- Elevation ---- */
+  --nih-shadow-card: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --nih-shadow-card-hover: 0 8px 25px rgba(0, 0, 0, 0.15);
+  --nih-shadow-field-focus: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --nih-shadow-popover: 0 10px 15px rgba(0, 0, 0, 0.1);
+
+  --nih-blur-card: 10px;
+  --nih-blur-bar: 12px;
+
+  /* ---- Motion ---- */
+  --nih-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --nih-ease-section: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --nih-duration-fast: 200ms;
+  --nih-duration: 300ms;
+  --nih-duration-slow: 400ms;
+
+  /* ---- Layout ---- */
+  --nih-width-sm: 48rem;
+  --nih-width-md: 56rem;
+  --nih-width-lg: 72rem;
+  --nih-width-xl: 80rem;
+  /* Clearance for the fixed top bar (page.tsx uses pt-20). */
+  --nih-topbar-offset: 5rem;
+}
+
+/* Nihilium component styles.
+ *
+ * Self-contained: no Tailwind build step is required at consumption time.
+ * Every rule mirrors what the live site renders today (globals.css plus the
+ * utility classes in page.tsx / TopBar.tsx).
+ */
+
+/* The brand surface. The site sets this on <body>; keeping it here means any
+   page built with the DS gets the brand background without extra wiring. */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--nih-color-bg);
+  color: var(--nih-color-text);
+  font-family: var(--nih-font-sans);
+  line-height: var(--nih-leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scoped equivalent of the body rule, for embedding the brand inside a host
+   page that owns <body> itself. */
+.nih-root {
+  background-color: var(--nih-color-bg);
+  color: var(--nih-color-text);
+  font-family: var(--nih-font-sans);
+  line-height: var(--nih-leading-normal);
+}
+
+/* ---------- Page ---------- */
+
+.nih-page {
+  height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--nih-color-bg);
+  color: var(--nih-color-text);
+  font-family: var(--nih-font-sans);
+  line-height: var(--nih-leading-normal);
+  -webkit-overflow-scrolling: touch;
+}
+
+.nih-page--snap {
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  scroll-padding-top: 0;
+}
+
+.nih-page--snap > .nih-section,
+.nih-page--snap > .nih-hero {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* ---------- Section ---------- */
+
+.nih-section {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: var(--nih-space-8) var(--nih-space-4);
+  padding-top: var(--nih-topbar-offset);
+  animation: nih-fade-in-up 0.8s var(--nih-ease-section) forwards;
+}
+
+.nih-section__inner {
+  width: 100%;
+}
+
+.nih-section--sm .nih-section__inner {
+  max-width: var(--nih-width-sm);
+}
+.nih-section--md .nih-section__inner {
+  max-width: var(--nih-width-md);
+}
+.nih-section--lg .nih-section__inner {
+  max-width: var(--nih-width-lg);
+}
+.nih-section--xl .nih-section__inner {
+  max-width: var(--nih-width-xl);
+}
+
+.nih-section--sm .nih-section__inner,
+.nih-section--md .nih-section__inner,
+.nih-section--lg .nih-section__inner,
+.nih-section--xl .nih-section__inner {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (min-width: 768px) {
+  .nih-section {
+    padding-top: var(--nih-topbar-offset);
+    padding-bottom: var(--nih-space-16);
+  }
+}
+
+@keyframes nih-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- Hero ---------- */
+
+.nih-hero {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--nih-topbar-offset) var(--nih-space-4) var(--nih-space-8);
+  text-align: center;
+  animation: nih-fade-in-up 0.8s var(--nih-ease-section) forwards;
+}
+
+.nih-hero__logo {
+  margin-bottom: var(--nih-space-8);
+}
+
+.nih-hero__tagline {
+  margin: 0 0 var(--nih-space-8);
+  max-width: var(--nih-width-lg);
+  font-size: var(--nih-text-xl);
+}
+
+.nih-hero__description {
+  margin: 0 auto;
+  max-width: var(--nih-width-sm);
+  padding: 0 var(--nih-space-4);
+  font-size: var(--nih-text-lg);
+  color: var(--nih-color-muted);
+}
+
+@media (min-width: 768px) {
+  .nih-hero__tagline {
+    font-size: var(--nih-text-2xl);
+  }
+  .nih-hero__description {
+    font-size: var(--nih-text-xl);
+  }
+}
+
+/* ---------- Headings ---------- */
+
+.nih-heading {
+  margin: 0;
+  color: var(--nih-color-text);
+  font-family: var(--nih-font-display);
+}
+
+.nih-heading--center {
+  text-align: center;
+}
+
+/* The brand wordmark treatment: uppercase, tracked out, heavy, soft offset. */
+.nih-heading--1 {
+  margin-bottom: var(--nih-space-4);
+  font-size: var(--nih-text-4xl);
+  font-weight: var(--nih-weight-display);
+  letter-spacing: var(--nih-tracking-display);
+  line-height: var(--nih-leading-tight);
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
+}
+
+.nih-heading--2 {
+  margin-bottom: var(--nih-space-8);
+  font-size: var(--nih-text-3xl);
+  font-weight: var(--nih-weight-bold);
+  line-height: var(--nih-leading-tight);
+}
+
+.nih-heading--3 {
+  margin-bottom: var(--nih-space-2);
+  font-size: var(--nih-text-lg);
+  font-weight: var(--nih-weight-bold);
+}
+
+.nih-heading--4 {
+  margin-bottom: var(--nih-space-2);
+  font-size: var(--nih-text-base);
+  font-weight: var(--nih-weight-semibold);
+}
+
+@media (min-width: 768px) {
+  .nih-heading--1 {
+    font-size: var(--nih-text-6xl);
+  }
+  .nih-heading--2 {
+    font-size: var(--nih-text-4xl);
+  }
+  .nih-heading--3 {
+    font-size: var(--nih-text-xl);
+  }
+}
+
+@media (max-width: 767px) {
+  .nih-heading--1 {
+    font-size: var(--nih-text-4xl);
+  }
+}
+
+/* ---------- Card (the "periodic table" surface) ---------- */
+
+.nih-card {
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-md);
+  background-color: var(--nih-color-surface);
+  -webkit-backdrop-filter: blur(var(--nih-blur-card));
+  backdrop-filter: blur(var(--nih-blur-card));
+  box-shadow: var(--nih-shadow-card);
+  transition: all var(--nih-duration-slow) var(--nih-ease);
+}
+
+.nih-card--sm {
+  padding: var(--nih-space-4);
+}
+.nih-card--md {
+  padding: var(--nih-space-4);
+}
+.nih-card--lg {
+  padding: var(--nih-space-6);
+}
+
+@media (min-width: 768px) {
+  .nih-card--md {
+    padding: var(--nih-space-6);
+  }
+}
+
+.nih-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--nih-shadow-card-hover);
+}
+
+/* Feature grids additionally scale on hover. */
+.nih-card--interactive:hover {
+  transform: translateY(-2px) scale(1.05);
+}
+
+/* ---------- Feature card ---------- */
+
+.nih-feature__icon {
+  display: block;
+  margin-bottom: var(--nih-space-3);
+  width: 2rem;
+  height: 2rem;
+}
+
+.nih-feature__icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.nih-feature__body {
+  margin: 0;
+  font-size: var(--nih-text-sm);
+}
+
+@media (min-width: 768px) {
+  .nih-feature__icon {
+    margin-bottom: var(--nih-space-4);
+    width: 3rem;
+    height: 3rem;
+  }
+  .nih-feature__body {
+    font-size: var(--nih-text-base);
+  }
+}
+
+/* ---------- Card grid ---------- */
+
+.nih-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr;
+  gap: var(--nih-space-4);
+}
+
+.nih-grid--gap-lg {
+  gap: var(--nih-space-4);
+}
+
+@media (min-width: 768px) {
+  .nih-grid--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nih-grid--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nih-grid {
+    gap: var(--nih-space-6);
+  }
+  .nih-grid--gap-lg {
+    gap: var(--nih-space-8);
+  }
+}
+
+@media (min-width: 1024px) {
+  .nih-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ---------- Top bar ---------- */
+
+.nih-topbar {
+  z-index: 50;
+  width: 100%;
+  border-bottom: 1px solid var(--nih-color-border-subtle);
+  background-color: var(--nih-color-bar);
+  -webkit-backdrop-filter: blur(var(--nih-blur-bar));
+  backdrop-filter: blur(var(--nih-blur-bar));
+  transition: all var(--nih-duration) var(--nih-ease);
+}
+
+.nih-topbar--fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.nih-topbar__inner {
+  display: flex;
+  max-width: var(--nih-width-xl);
+  margin: 0 auto;
+  padding: var(--nih-space-2) var(--nih-space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nih-space-4);
+}
+
+.nih-topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-3);
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--nih-color-text);
+  font-family: inherit;
+  font-size: var(--nih-text-lg);
+  font-weight: var(--nih-weight-bold);
+  cursor: pointer;
+  transition: all var(--nih-duration) var(--nih-ease);
+}
+
+.nih-topbar__logo {
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+}
+
+.nih-topbar__logo > img,
+.nih-topbar__logo > svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.nih-topbar__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--nih-space-6);
+}
+
+.nih-topbar__link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--nih-color-text);
+  font-family: inherit;
+  font-size: var(--nih-text-sm);
+  font-weight: var(--nih-weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--nih-duration) var(--nih-ease);
+}
+
+.nih-topbar__link--icon > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+}
+
+.nih-topbar__brand:hover,
+.nih-topbar__link:hover {
+  opacity: 0.7;
+  transform: scale(1.05);
+}
+
+.nih-topbar__brand:active,
+.nih-topbar__link:active {
+  transform: scale(0.95);
+}
+
+/* Tooltip used by icon links in the bar. */
+.nih-topbar__tip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.nih-topbar__tip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 50;
+  margin-top: var(--nih-space-2);
+  transform: translateX(-50%);
+  border-radius: var(--nih-radius-md);
+  background-color: var(--nih-color-text);
+  padding: var(--nih-space-2) var(--nih-space-3);
+  color: var(--nih-color-on-solid);
+  font-size: var(--nih-text-sm);
+  white-space: nowrap;
+  box-shadow: var(--nih-shadow-popover);
+}
+
+/* ---------- Button ---------- */
+
+.nih-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nih-space-2);
+  border: var(--nih-border-width) solid transparent;
+  border-radius: var(--nih-radius-sm);
+  padding: var(--nih-space-3) var(--nih-space-4);
+  font-family: inherit;
+  font-size: var(--nih-text-base);
+  font-weight: var(--nih-weight-medium);
+  line-height: 1.25;
+  cursor: pointer;
+  transition: all var(--nih-duration) var(--nih-ease);
+}
+
+.nih-button--solid {
+  background-color: var(--nih-color-text);
+  color: var(--nih-color-on-solid);
+}
+
+.nih-button--ghost {
+  border-color: var(--nih-color-border);
+  background-color: transparent;
+  color: var(--nih-color-text);
+}
+
+.nih-button--block {
+  width: 100%;
+}
+
+.nih-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.nih-button--ghost:hover:not(:disabled) {
+  background-color: rgba(43, 43, 43, 0.06);
+  opacity: 1;
+}
+
+.nih-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---------- Text field ---------- */
+
+.nih-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--nih-color-field-border);
+  border-radius: var(--nih-radius-sm);
+  background-color: var(--nih-color-field);
+  padding: var(--nih-space-3);
+  color: var(--nih-color-text);
+  font-family: inherit;
+  font-size: var(--nih-text-base);
+  transition: all var(--nih-duration) var(--nih-ease);
+}
+
+.nih-input::placeholder {
+  color: var(--nih-color-muted-soft);
+  opacity: 0.8;
+}
+
+.nih-input:focus {
+  outline: 2px solid var(--nih-color-border);
+  outline-offset: 1px;
+  transform: translateY(-1px);
+  box-shadow: var(--nih-shadow-field-focus);
+}
+
+.nih-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------- Checkbox ---------- */
+
+.nih-checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.nih-checkbox__control {
+  height: 1rem;
+  width: 1rem;
+  flex: none;
+  margin: 0 var(--nih-space-2) 0 0;
+  accent-color: var(--nih-color-accent);
+  border: 1px solid var(--nih-color-field-border);
+  border-radius: var(--nih-radius-sm);
+  cursor: pointer;
+}
+
+.nih-checkbox__label {
+  color: var(--nih-color-muted);
+  font-size: var(--nih-text-sm);
+  cursor: pointer;
+}
+
+/* ---------- Status message ---------- */
+
+.nih-status {
+  margin: 0;
+  text-align: center;
+  font-size: var(--nih-text-base);
+}
+
+.nih-status--success {
+  color: var(--nih-color-success);
+}
+
+.nih-status--error {
+  color: var(--nih-color-error);
+}
+
+/* ---------- Text link ---------- */
+
+.nih-link {
+  color: var(--nih-color-text);
+  text-decoration: none;
+  transition: opacity var(--nih-duration) var(--nih-ease);
+}
+
+.nih-link--underline {
+  text-decoration: underline;
+}
+
+.nih-link:hover {
+  opacity: 0.7;
+}
+
+/* ---------- Subscribe form ---------- */
+
+.nih-subscribe__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-4);
+}
+
+/* ---------- Accessibility ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .nih-page--snap,
+  .nih-section,
+  .nih-hero,
+  .nih-card,
+  .nih-button,
+  .nih-input,
+  .nih-link,
+  .nih-topbar,
+  .nih-topbar__brand,
+  .nih-topbar__link {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

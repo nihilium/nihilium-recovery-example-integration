@@ -1,0 +1,191 @@
+/* App glue, and only glue.
+ *
+ * The design system owns colour, type, spacing and every component; this file owns the handful of
+ * layout shapes it has no component for (the app shell, the wallet strip, the transcript). Every
+ * value below is a --nih-* token, so a change to the brand moves this file with it. If a rule here
+ * starts specifying a colour of its own, it is in the wrong file. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* `nih-root` (not `<Page>`) paints the brand surface here: Page is a snap-scrolling,
+ * one-section-per-screen container built for nihilium.io's marketing pages, and a wallet with a
+ * scenario runner under it needs ordinary scrolling. */
+.app {
+  min-height: 100vh;
+  padding-top: var(--nih-topbar-offset);
+}
+
+.app__main {
+  max-width: var(--nih-width-xl);
+  margin: 0 auto;
+  padding: var(--nih-space-6) var(--nih-space-4) var(--nih-space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-6);
+}
+
+/* ---------- demo banner ---------- */
+
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--nih-space-2) var(--nih-space-3);
+  padding: var(--nih-space-3) var(--nih-space-4);
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-md);
+  background: var(--nih-color-field);
+  font-size: var(--nih-text-sm);
+}
+
+.demo-banner__tag {
+  font-weight: var(--nih-weight-display);
+  letter-spacing: var(--nih-tracking-display);
+  text-transform: uppercase;
+}
+
+.demo-banner__text {
+  color: var(--nih-color-muted);
+  line-height: var(--nih-leading-normal);
+}
+
+/* ---------- wallet strip ---------- */
+
+.wallet-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nih-space-2);
+}
+
+.wallet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  padding: var(--nih-space-2) var(--nih-space-4);
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-surface);
+  color: var(--nih-color-text);
+  font: inherit;
+  font-weight: var(--nih-weight-medium);
+  cursor: pointer;
+  transition: background var(--nih-duration-fast) var(--nih-ease);
+}
+
+.wallet-tab:hover {
+  background: var(--nih-color-field);
+}
+
+.wallet-tab[aria-selected="true"] {
+  background: var(--nih-color-text);
+  color: var(--nih-color-on-solid);
+}
+
+.wallet-tab__icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+/* ---------- small shared bits ---------- */
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--nih-text-sm);
+}
+
+.muted {
+  color: var(--nih-color-muted);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--nih-space-3);
+  flex-wrap: wrap;
+}
+
+/* ---------- accounts ---------- */
+
+.account-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nih-space-3);
+  padding: var(--nih-space-3) 0;
+  border-top: 1px solid var(--nih-color-border-subtle);
+}
+
+.account-row__labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+}
+
+.account-row__balance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.address-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  padding: var(--nih-space-1) var(--nih-space-2);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-field);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.address-chip__note {
+  color: var(--nih-color-error);
+  font-size: var(--nih-text-sm);
+}
+
+/* ---------- simulated badge ---------- */
+
+.sim-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--nih-space-1);
+  padding: 0 var(--nih-space-2);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-full);
+  font-size: var(--nih-text-sm);
+  color: var(--nih-color-muted);
+}
+
+.sim-badge__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--nih-radius-full);
+  background: var(--nih-color-muted);
+}
+
+.sim-badge__reason {
+  color: var(--nih-color-muted-soft);
+}

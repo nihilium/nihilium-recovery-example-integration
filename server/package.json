@@ -1,0 +1,36 @@
+{
+  "name": "nihilium-recovery-demo-server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nihilium/recovery-core": "^0.7.2",
+    "@nihilium/recovery-onchain-evm": "file:../../recovery-sdk/onchain/evm",
+    "@nihilium/recovery-service": "file:../../recovery-sdk/packages/service",
+    "@nihilium/recovery-storage-local": "^0.7.2",
+    "@nihilium/recovery-watchtower": "file:../../recovery-sdk/packages/watchtower",
+    "@nihilium/recovery-watchtower-evm": "file:../../recovery-sdk/packages/adapters/watchtower-evm",
+    "@nihilium/recovery-watchtower-nihilium": "file:../../recovery-sdk/packages/adapters/watchtower-nihilium",
+    "@scure/bip32": "^2.4.0",
+    "@scure/bip39": "^2.4.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "viem": "^2.56.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.3",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.1"
+  }
+}

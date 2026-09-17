@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Every .env here holds demo keys for a testnet. They are still keys.
+.env
+.env.*
+!.env.example
+
+# The record host's and watchtower's on-disk state (server/src/roles/*/store.ts).
+.data/
