@@ -7,7 +7,7 @@
  */
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
-import { roleKey, type RoleKey } from "./demoKeys.js";
+import { createRoleIdentity, DEMO_ROLE_MNEMONIC, type RoleIdentity } from "./roleIdentity.js";
 
 loadDotenv();
 
@@ -22,6 +22,22 @@ function num(name: string, fallback: number): number {
 function str(name: string, fallback: string): string {
     const raw = process.env[name];
     return raw === undefined || raw === "" ? fallback : raw;
+}
+
+/**
+ * A value with no sensible default. Only the two shared credentials use this: they are capabilities
+ * matched against the app's copy, so a fallback here would be a credential every clone of this
+ * repository shares.
+ */
+function required(name: string): string {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "") {
+        throw new Error(
+            `${name} is not set. Run \`npm run setup:env\` at the repository root — it writes ` +
+                "server/.env and app/.env.local with one matching pair of generated secrets.",
+        );
+    }
+    return raw;
 }
 
 function bool(name: string, fallback: boolean): boolean {
@@ -41,8 +57,16 @@ export interface Config {
     port: number;
     corsOrigin: string;
     chainId: number;
+    /** CAIP-2 for the chain the roles act on. The key for `ROLE_CHAINS`, and a KDF input elsewhere. */
+    namespace: string;
     rpcUrl: string;
-    keys: { relayer: RoleKey; pause: RoleKey; abort: RoleKey; resume: RoleKey[] };
+    /**
+     * Roles are account indices against this phrase, so one phrase gives every role a key on every
+     * chain, each in that chain's own curve and path. Per-role `.env` keys still override, which is
+     * what a real deployment does — see `roleIdentity.ts`.
+     */
+    roleMnemonic: string;
+    roles: { relayer: RoleIdentity; pause: RoleIdentity; abort: RoleIdentity; resume: RoleIdentity[] };
     resumeThreshold: number;
     /** Seconds. Demo values: long enough to see, short enough to sit through. */
     timelockSeconds: number;
@@ -60,17 +84,32 @@ export interface Config {
 
 const memberCount = resumeKeys.length > 0 ? resumeKeys.length : DEFAULT_RESUME_MEMBERS;
 
+const chainId = num("CHAIN_ID", 11155111);
+
+const roleOptions = {
+    mnemonic: str("ROLE_MNEMONIC", DEMO_ROLE_MNEMONIC),
+    supplied: {
+        relayer: process.env["RELAYER_PRIVATE_KEY"],
+        pause: process.env["PAUSE_AUTHORITY_PRIVATE_KEY"],
+        abort: process.env["ABORT_AUTHORITY_PRIVATE_KEY"],
+        ...Object.fromEntries(resumeKeys.map((key, i) => [`resume-${i + 1}`, key])),
+    },
+};
+
 export const config: Config = {
     port: num("PORT", 8787),
     corsOrigin: str("CORS_ORIGIN", "http://localhost:5173"),
-    chainId: num("CHAIN_ID", 11155111),
+    chainId,
+    namespace: `eip155:${chainId}`,
     rpcUrl: str("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com"),
-    keys: {
-        relayer: roleKey("relayer", process.env["RELAYER_PRIVATE_KEY"], 0),
-        pause: roleKey("pause", process.env["PAUSE_AUTHORITY_PRIVATE_KEY"], 1),
-        abort: roleKey("abort", process.env["ABORT_AUTHORITY_PRIVATE_KEY"], 2),
+    roleMnemonic: roleOptions.mnemonic,
+    roles: {
+        // The index is the role's identity across every chain, so it is fixed here and nowhere else.
+        relayer: createRoleIdentity("relayer", 0, roleOptions),
+        pause: createRoleIdentity("pause", 1, roleOptions),
+        abort: createRoleIdentity("abort", 2, roleOptions),
         resume: Array.from({ length: memberCount }, (_, i) =>
-            roleKey(`resume-${i + 1}`, resumeKeys[i], 10 + i),
+            createRoleIdentity(`resume-${i + 1}`, 10 + i, roleOptions),
         ),
     },
     // 2 of 3 by default. `validateVetoConfig` refuses a threshold of 1 unless a caller declares the
@@ -80,8 +119,8 @@ export const config: Config = {
     pauseCeilingSeconds: num("PAUSE_CEILING_SECONDS", 900),
     recordsDir: resolve(str("RECORDS_DIR", "./.data/records")),
     watchesDir: resolve(str("WATCHES_DIR", "./.data/watches")),
-    recordAppendSecret: str("RECORD_APPEND_SECRET", "demo-append-secret"),
-    watchRegisterSecret: str("WATCH_REGISTER_SECRET", "demo-watch-secret"),
+    recordAppendSecret: required("RECORD_APPEND_SECRET"),
+    watchRegisterSecret: required("WATCH_REGISTER_SECRET"),
     // 15s, not the README's 300s: a scenario that waits five minutes for an alarm teaches nothing.
     // The banner prints it so nobody reads the demo's cadence as a recommendation.
     watchtowerPollSeconds: num("WATCHTOWER_POLL_SECONDS", 15),

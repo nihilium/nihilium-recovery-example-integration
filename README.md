@@ -18,7 +18,7 @@ under `app/src/integration/` and `server/src/roles/`; everything else is staging
 | `app/` | React + Vite. The wallet, the chain registry, and the scenario runner. |
 | `app/src/integration/` | **The part to copy.** SDK-facing code that imports nothing from the demo. |
 | `server/` | Express. The record host, the watchtower, the three veto authorities and the relayer — one router each. |
-| `docs/` | A walkthrough per scenario. |
+| `docs/` | [Configuration and role keys](docs/configuration.md), and a walkthrough per scenario. |
 
 `CLAUDE.md` states the repository's goal and the rules the code follows; read it before changing
 anything here.
@@ -38,9 +38,19 @@ npm run dev          # the app on :5173
 npm run dev:server   # the roles on :8787 — prints every role's address and balance
 ```
 
-Nothing needs configuring: the app runs against public RPCs with a simulated identity ceremony, and
-the server derives its role keys from the demo mnemonic when `.env` supplies none. Copy
-`app/.env.example` and `server/.env.example` when you want your own.
+Nothing needs configuring. `npm install` writes `app/.env.local` and `server/.env` from the two
+`.env.example` templates, generating one matching pair of credentials for the record host and the
+watchtower — those are write capabilities, so they are made per machine rather than shipped in the
+repository. Existing files are never overwritten; `npm run setup:env` recreates a missing one.
+
+Everything else has a working default: public RPCs, a simulated identity ceremony, and server roles
+derived from `ROLE_MNEMONIC` (the public demo phrase when unset). A role is an account index against
+that phrase, so each one gets a key on every chain it acts on, in that chain's own curve and
+derivation path — a raw hex key is secp256k1-shaped and cannot follow you to another curve.
+
+[docs/configuration.md](docs/configuration.md) covers all of it: both `.env` files, why the two
+shared credentials are generated rather than shipped, how role keys resolve per chain, and which
+parts are demo shortcuts you must not copy.
 
 `npm test`, `npm run typecheck` and `npm run lint` cover both projects.
 

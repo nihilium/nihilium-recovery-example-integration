@@ -79,7 +79,11 @@ process.
 Three veto roles on one key looks correctly configured and is worthless. The demo therefore gives
 each its own key, its own route, and its own visibly separate control — and says why in the UI.
 
-`server/` is the only place a private key that is not the demo mnemonic may exist.
+`server/` is the only place a private key that is not the demo wallet's may exist. A role there is
+an account index against `ROLE_MNEMONIC`, resolved per chain through that chain's own curve and
+derivation path — so one phrase gives every role a key on every chain it acts on, and a per-role
+`.env` key overrides it, which is the shape a real deployment uses. That and the two generated
+shared credentials are documented in [docs/configuration.md](docs/configuration.md).
 
 ## Chains and wallets
 

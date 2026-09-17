@@ -2,12 +2,12 @@
  * The boot banner.
  *
  * The roles are the lesson of this repo, and this is where a reader first meets them: separate
- * addresses, separate routes, printed side by side. It also prints the two things that silently
- * break a demo — a relayer with no gas, and role keys that share a seed.
+ * identities, separate routes, printed side by side with the chain they act on. It also prints the
+ * two things that silently break a demo — a relayer with no gas, and roles that share a seed.
  */
 import { createPublicClient, formatEther, http } from "viem";
 import type { Config } from "./config.js";
-import { addressOf } from "./demoKeys.js";
+import type { RoleIdentity } from "./roleIdentity.js";
 import { logInfo, logWarn } from "./log.js";
 
 /** Below this, `initiateRecovery` / `executeRecovery` will fail on Sepolia. */
@@ -16,13 +16,13 @@ const LOW_BALANCE_WEI = 10_000_000_000_000_000n; // 0.01 ETH
 export async function printBootBanner(config: Config, moduleAddress: string): Promise<void> {
     const client = createPublicClient({ transport: http(config.rpcUrl) });
 
-    const roles = [
-        { label: "relayer", key: config.keys.relayer, routes: "POST /api/roles/relayer/{initiate,execute,fund}" },
-        { label: "pause authority", key: config.keys.pause, routes: "POST /api/roles/veto/pause" },
-        { label: "abort authority", key: config.keys.abort, routes: "POST /api/roles/veto/abort" },
-        ...config.keys.resume.map((key, i) => ({
+    const roles: { label: string; identity: RoleIdentity; routes: string }[] = [
+        { label: "relayer", identity: config.roles.relayer, routes: "POST /api/roles/relayer/{initiate,execute,fund}" },
+        { label: "pause authority", identity: config.roles.pause, routes: "POST /api/roles/veto/pause" },
+        { label: "abort authority", identity: config.roles.abort, routes: "POST /api/roles/veto/abort" },
+        ...config.roles.resume.map((identity, i) => ({
             label: `resume member ${i + 1}`,
-            key,
+            identity,
             routes: i === 0 ? "POST /api/roles/veto/resume" : "",
         })),
     ];
@@ -31,29 +31,32 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
     // index-aligned is how a banner ends up printing one role's balance under another's name.
     const rows = await Promise.all(
         roles.map(async (role) => {
+            // One chain today. When roles act on a second, this becomes a row per (role, chain) —
+            // which is why the key is asked for per namespace rather than held on the role.
+            const key = role.identity.on(config.namespace);
             try {
-                return { ...role, balance: await client.getBalance({ address: addressOf(role.key) }) };
+                return { ...role, key, balance: await client.getBalance({ address: key.authority.id as `0x${string}` }) };
             } catch {
                 // An unreadable balance must not read as an empty one.
-                return { ...role, balance: null };
+                return { ...role, key, balance: null };
             }
         }),
     );
 
     logInfo("boot", `listening on :${config.port}`, {
-        chain: config.chainId,
+        chain: config.namespace,
         rpc: config.rpcUrl,
         module: moduleAddress,
     });
     console.log("");
-    console.log("  roles — separate keys, separate routes, on purpose");
+    console.log(`  roles — separate identities, separate routes, on ${config.namespace}`);
     for (const row of rows) {
         const shown =
             row.balance === null ? " balance unreadable" : `${formatEther(row.balance).padStart(10)} ETH`;
-        console.log(`    ${row.label.padEnd(18)} ${addressOf(row.key)}  ${shown}  ${row.routes}`);
+        console.log(`    ${row.label.padEnd(18)} ${row.key.authority.id}  ${shown}  ${row.routes}`);
     }
     console.log(
-        `    resume quorum      ${config.resumeThreshold}-of-${config.keys.resume.length}` +
+        `    resume quorum      ${config.resumeThreshold}-of-${config.roles.resume.length}` +
             `   timelock ${config.timelockSeconds}s   pause ceiling ${config.pauseCeilingSeconds}s`,
     );
     console.log("");
@@ -67,15 +70,17 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
     if (derived.length > 0) {
         logWarn(
             "boot",
-            `${derived.length} role key(s) derived from the PUBLIC demo mnemonic — stable across ` +
-                "restarts, and known to anyone reading this repo. Fund with testnet dust only; set " +
-                "them in server/.env to use your own.",
+            `${derived.length} role(s) derived from one phrase (${
+                config.roleMnemonic.split(" ").slice(0, 2).join(" ")
+            }…) — convenient here, and the exact failure this repo is about in production: roles that ` +
+                "share a seed are one party wearing several hats. Set each role's key in server/.env " +
+                "to separate them.",
         );
     }
     const relayer = rows.find((r) => r.label === "relayer");
     if (relayer?.balance != null && relayer.balance < LOW_BALANCE_WEI) {
         logWarn("boot", "relayer is below 0.01 ETH — initiate/execute will fail", {
-            address: addressOf(config.keys.relayer),
+            address: relayer.key.authority.id,
             faucet: "https://sepoliafaucet.com",
         });
     }

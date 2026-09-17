@@ -8,7 +8,11 @@
   "workspaces": ["app", "server"],
   "scripts": {
     "preinstall": "node scripts/check-sdk-checkout.mjs",
+    "postinstall": "node scripts/setup-env.mjs",
+    "setup:env": "node scripts/setup-env.mjs",
+    "predev": "node scripts/setup-env.mjs",
     "dev": "npm --workspace app run dev",
+    "predev:server": "node scripts/setup-env.mjs",
     "dev:server": "npm --workspace server run dev",
     "build": "npm --workspace app run build",
     "typecheck": "npm --workspace app run typecheck && npm --workspace server run typecheck",

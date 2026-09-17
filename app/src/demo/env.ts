@@ -20,8 +20,14 @@ export interface DemoEnv {
     sepoliaRpcUrl: string;
     bundlerUrl: string;
     mnemonic: string;
-    recordAppendSecret: string;
-    watchRegisterSecret: string;
+    /**
+     * Write capabilities on the record host and the watchtower, generated per machine by
+     * `scripts/setup-env.mjs`. `undefined` when nothing generated them — and deliberately not
+     * defaulted to a constant, because a credential a repository ships is one every clone shares.
+     * Whatever needs one demands it by name; see `requireCredential`.
+     */
+    recordAppendSecret: string | undefined;
+    watchRegisterSecret: string | undefined;
     nihilium: {
         /**
          * Live mode ships this to the browser, and that is an accepted demo trade-off rather than an
@@ -42,14 +48,37 @@ export function readEnv(): DemoEnv {
         sepoliaRpcUrl: env.VITE_SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
         bundlerUrl: env.VITE_BUNDLER_URL ?? "https://public.pimlico.io/v2/11155111/rpc",
         mnemonic: env.VITE_DEMO_MNEMONIC ?? DEMO_MNEMONIC,
-        // Shared secrets with the server's record host and watchtower. Demo defaults, matched by
-        // `server/.env.example`; both sides must agree or appends and registrations are refused.
-        recordAppendSecret: env.VITE_RECORD_APPEND_SECRET ?? "demo-append-secret",
-        watchRegisterSecret: env.VITE_WATCH_REGISTER_SECRET ?? "demo-watch-secret",
+        // Matched by `server/.env`; both sides must agree or appends and registrations are refused.
+        recordAppendSecret: blank(env.VITE_RECORD_APPEND_SECRET),
+        watchRegisterSecret: blank(env.VITE_WATCH_REGISTER_SECRET),
         nihilium: {
             apiKey: env.VITE_NIHILIUM_API_KEY,
             apiUrl: env.VITE_NIHILIUM_API_URL ?? "https://api.nihilium.io",
             emailServiceUrl: env.VITE_NIHILIUM_EMAIL_SERVICE_URL ?? "https://zkemail.nihilium.io",
         },
     };
+}
+
+/** An empty string in a .env file means "not set", not "set to nothing". */
+function blank(value: string | undefined): string | undefined {
+    return value === undefined || value.trim() === "" ? undefined : value;
+}
+
+/**
+ * Demands a credential at the point of use, naming what to run. Called by the record-host and
+ * watchtower clients rather than at start-up: the app is fully usable without either of them, and
+ * refusing to boot over a credential nothing has asked for yet would be theatre.
+ */
+export function requireCredential(
+    value: string | undefined,
+    which: "VITE_RECORD_APPEND_SECRET" | "VITE_WATCH_REGISTER_SECRET",
+): string {
+    if (value === undefined) {
+        throw new Error(
+            `${which} is not set, so this demo cannot write to the server role that needs it. ` +
+                "Run `npm run setup:env` at the repository root — it writes app/.env.local and " +
+                "server/.env with one matching pair.",
+        );
+    }
+    return value;
 }
