@@ -1,16 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { createAppBindings } from "./demo/bindings.js";
+import { useRecoveryFlow } from "./demo/useRecoveryFlow.js";
 import { deriveWallet, type WalletSnapshot } from "./demo/wallet.js";
 import { DemoBanner } from "./ui/DemoBanner.js";
+import { Explain, ExplainProvider } from "./ui/Explain.js";
+import { useExplain } from "./ui/explainContext.js";
 import { WalletCard } from "./ui/WalletCard.js";
 import { WalletSwitcher } from "./ui/WalletSwitcher.js";
-import { Card, Heading, StatusMessage, TopBar } from "./ui/ds.js";
+import { RecoverDialog } from "./ui/RecoverDialog.js";
+import { RecoveryCard } from "./ui/RecoveryCard.js";
+import { StatusMessage, TopBar } from "./ui/ds.js";
 
 export function App() {
+    return (
+        <ExplainProvider>
+            <Shell />
+        </ExplainProvider>
+    );
+}
+
+function Shell() {
     // Built once. Rebuilding it mid-run would swap the chain registry — and, from M3, the SDK
     // instance — under whatever is using them.
     const bindings = useMemo(() => createAppBindings(), []);
     const chains = useMemo(() => bindings.chains.all(), [bindings]);
+    const explain = useExplain();
 
     const [activeChainId, setActiveChainId] = useState(chains[0]!.id);
     const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
@@ -27,6 +41,16 @@ export function App() {
     }, [bindings]);
 
     const chain = bindings.chains.require(activeChainId);
+    const account = wallet?.accounts[chain.id]?.[0];
+
+    // Owned here, not by the recovery card: the wallet's protection badge reads the same vault, and
+    // two copies of that state would eventually disagree about whether an account is covered.
+    const flow = useRecoveryFlow(bindings, bindings.methods, chain, account);
+
+    // Opened from the wallet card and rendered here, because the thing it acts on is the vault this
+    // component owns rather than anything either card holds.
+    const [recovering, setRecovering] = useState(false);
+    const activeVault = flow.vaultFor(chain.id);
 
     return (
         <>
@@ -36,27 +60,31 @@ export function App() {
                 position="static"
                 brand="NIHILIUM RECOVERY"
                 links={[
+                    { label: explain.on ? "Explain: on" : "Explain: off", onClick: explain.toggle },
                     { label: "SDK", href: "https://github.com/nihilium", external: true },
-                    { label: "CLAUDE.md", href: "https://github.com/nihilium", external: true },
                 ]}
             />
             <div className="app nih-root">
                 <main className="app__main">
-                    <DemoBanner mode={bindings.env.mode} />
+                    <DemoBanner ceremonyReady={bindings.methods !== null} />
 
                     <section className="stack" aria-label="Wallets">
-                        <Heading level={2}>Wallets</Heading>
-                        <p className="muted">
-                            One 12-word seed phrase, every chain derived from it. Switching here
-                            changes which chain the scenarios below act on.
-                        </p>
-                        <p className="mono muted">{bindings.env.mnemonic}</p>
-
                         <WalletSwitcher
                             chains={chains}
                             activeId={activeChainId}
+                            vaultFor={flow.vaultFor}
                             onSelect={setActiveChainId}
                         />
+
+                        <p className="mono muted">{bindings.env.mnemonic}</p>
+
+                        <Explain>
+                            <p>
+                                One 12-word seed phrase, every chain derived from it, printed in the open
+                                because the point of this demo is to lose it convincingly. Switching
+                                above changes which chain the card below acts on.
+                            </p>
+                        </Explain>
 
                         {error !== null && <StatusMessage tone="error">{error}</StatusMessage>}
 
@@ -64,20 +92,28 @@ export function App() {
                             chain={chain}
                             accounts={wallet?.accounts[chain.id] ?? []}
                             failure={wallet?.failures[chain.id]}
+                            vault={activeVault}
+                            onRecover={() => setRecovering(true)}
                         />
                     </section>
 
-                    <section className="stack" aria-label="Scenarios">
-                        <Heading level={2}>Recovery scenarios</Heading>
-                        <Card padding="md">
-                            <p className="muted">
-                                The scenario runner arrives next. Each scenario answers one question,
-                                names the roles it involves, and logs every SDK call it makes.
-                            </p>
-                        </Card>
-                    </section>
+                    <RecoveryCard
+                        flow={flow}
+                        methods={bindings.methods}
+                        methodError={bindings.methodError}
+                        account={account}
+                    />
                 </main>
             </div>
+
+            {recovering && activeVault !== null && (
+                <RecoverDialog
+                    open={recovering}
+                    onClose={() => setRecovering(false)}
+                    flow={flow}
+                    vault={activeVault}
+                />
+            )}
         </>
     );
 }

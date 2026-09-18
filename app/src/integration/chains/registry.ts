@@ -3,6 +3,10 @@
  * "which chains does this app support?" a question you answer by running it.
  *
  * Adding a chain is one module next door plus one line here.
+ *
+ * **To replace:** the chain list and `ChainRegistryOptions` — a real wallet passes its own RPC
+ * endpoints and probably fewer chains. **Assumes:** every module it builds is independent; none of
+ * them may reach for another through this registry.
  */
 import { createEvmSepoliaChain } from "./evm.js";
 import { createSolanaDevnetChain } from "./solana.js";

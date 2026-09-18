@@ -1,23 +1,37 @@
 /**
  * The "this is a demo" line. On every screen, never dismissible.
  *
- * It names the three things a reader could otherwise get wrong: the seed is public, the money is
- * testnet, and recovery covers loss rather than theft.
+ * One sentence at rest, because a four-sentence banner is one nobody reads twice. The sentence that
+ * stays is the one with a cost attached — the ceremony is live and sealing spends money. The rest
+ * are true and worth knowing, so they are still here, behind the Explain toggle.
  */
 import { DEMO_MNEMONIC_WARNING } from "../demo/mnemonic.js";
-import type { RecoveryMode } from "../demo/env.js";
+import { Explain } from "./Explain.js";
 
-export function DemoBanner({ mode }: { mode: RecoveryMode }) {
+export function DemoBanner({ ceremonyReady }: { ceremonyReady: boolean }) {
     return (
         <div className="demo-banner" role="note">
             <span className="demo-banner__tag">Demo</span>
             <span className="demo-banner__text">
-                Example integration of the Nihilium Recovery SDK — not a wallet. {DEMO_MNEMONIC_WARNING}{" "}
-                Recovery here restores access an owner <em>lost</em>; it does not defend a wallet
-                whose seed someone else holds.{" "}
-                {mode === "live"
-                    ? "Live mode: identity ceremonies are real, paid, and take minutes."
-                    : "Simulated identity ceremony: offline and free. Every other part of the SDK is real."}
+                {ceremonyReady ? (
+                    <>
+                        The identity ceremony is <strong>live</strong>: sealing is paid, once per
+                        guardian, and recovering emails real people and waits for them.
+                    </>
+                ) : (
+                    <strong>The live ceremony is not configured, so nothing can be sealed yet.</strong>
+                )}
+
+                <Explain>
+                    <p>
+                        Example integration of the Nihilium Recovery SDK — not a wallet.{" "}
+                        {DEMO_MNEMONIC_WARNING}
+                    </p>
+                    <p>
+                        Recovery here restores access an owner <em>lost</em>; it does not defend a
+                        wallet whose seed someone else holds.
+                    </p>
+                </Explain>
             </span>
         </div>
     );

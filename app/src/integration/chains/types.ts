@@ -5,6 +5,10 @@
  * `balance.source`.
  *
  * Adding a chain is one file next door plus one line in `registry.ts`.
+ *
+ * **To replace:** nothing, if these are the fields your app needs. This is the contract, and a
+ * method or a UI that branches on a chain id instead of asking through it is the thing it exists to
+ * prevent. **Assumes:** the caller pins `namespace` and `tier` once and never recomputes them.
  */
 import type { KeyAdapter, PublicKey, Signature, Tier } from "@nihilium/recovery-core";
 import type { SettlementBinding } from "../recovery/settlement/types.js";

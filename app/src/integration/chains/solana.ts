@@ -6,9 +6,14 @@
  * program yet, so a recovery key derived for this chain is registered nowhere and protects nothing
  * until one ships. `settlement` says so by being a simulation, and the balance says so by being
  * `source: "simulated"`.
+ *
+ * **To replace:** `balanceOf` (query a real RPC) and `settlement` (a vault program is live on devnet
+ * at `DaLebS3k5gD1k42uGU6LPnSP9qTNwYxaKqLQBb7BqgkG`, but the SDK has no settlement adapter reaching
+ * it yet). **Assumes:** the namespace comes from `SOLANA_NAMESPACE` and never from a literal — every
+ * recovery key derived for this chain depends on it byte for byte.
  */
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { SolanaKeyAdapter, toSolanaAddress } from "@nihilium/recovery-key-solana";
+import { SOLANA_NAMESPACE, SolanaKeyAdapter, toSolanaAddress } from "@nihilium/recovery-key-solana";
 import { base58 } from "@scure/base";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { deriveEd25519 } from "../keys/derive.js";
@@ -23,9 +28,11 @@ export function createSolanaDevnetChain(): ChainModule {
         id: "solana-devnet",
         label: "Solana · devnet",
         icon: "Key",
-        // Pinned. Not the CAIP-2 genesis-hash form, and permanent either way: whatever string is
-        // here is what every recovery key for this chain was derived under.
-        namespace: "solana:devnet",
+        // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
+        // name — `solana:devnet` is not a chain id, it just looks like one, and it would have sealed
+        // perfectly happily. The namespace is a KDF input, so a wrong value is not a bug that gets
+        // fixed later: it is a vault whose keys nothing on that chain will ever accept.
+        namespace: SOLANA_NAMESPACE.devnet,
         tier: "smart-account",
         keyAdapter: new SolanaKeyAdapter(),
 

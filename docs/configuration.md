@@ -138,10 +138,45 @@ from wherever it keeps it. A real deployment holds no phrase that derives all of
 
 | Key | Default | Notes |
 |---|---|---|
-| `VITE_RECOVERY_MODE` | `simulated` | `live` runs the real zkEmail ceremony: **paid**, minutes, human in the loop |
+| `VITE_NIHILIUM_THRESHOLD`, `VITE_NIHILIUM_PROCESSOR_COUNT` | `1`, `1` | Nihilium's **processor** cohort, not the guardian quorum. One processor is published |
 | `VITE_SERVER_URL` | `http://localhost:8787` | |
 | `VITE_SEPOLIA_RPC_URL`, `VITE_BUNDLER_URL` | public endpoints | |
 | `VITE_DEMO_MNEMONIC` | the phrase in `src/demo/mnemonic.ts` | the wallet's seed, not the roles' |
 | `VITE_RECORD_APPEND_SECRET`, `VITE_WATCH_REGISTER_SECRET` | **generated** | must match `server/.env` |
-| `VITE_NIHILIUM_API_KEY` | unset | live mode only; reaches the browser, which is an accepted demo trade-off — it is a spend limit on sealing, not access to funds |
-| `VITE_NIHILIUM_API_URL`, `VITE_NIHILIUM_EMAIL_SERVICE_URL` | `api.nihilium.io`, `zkemail.nihilium.io` | live mode only; the processor cohort and the email service the ceremony runs against |
+| `VITE_NIHILIUM_API_KEY` | **required** | the ceremony is paid and there is no free mode; without it the recovery panel says so rather than degrading to a simulation. Reaches the browser, which is an accepted demo trade-off — it is a spend limit on sealing, not access to funds |
+| `VITE_NIHILIUM_API_URL`, `VITE_NIHILIUM_EMAIL_SERVICE_URL` | `api.nihilium.io`, `zkemail.nihilium.io` | where the ceremony runs, and where the DKIM registry check asks |
+
+---
+
+## Troubleshooting: `ENOSPC: System limit for number of file watchers reached`
+
+`npm run dev` or `npm run dev:server` dies at startup, naming a file that has nothing wrong with it.
+It is the Linux inotify limit, and there are two halves to it.
+
+**This repo's half, already fixed.** The SDK arrives through `file:` links, which are symlinks into
+a sibling checkout — so the dev servers resolve them to real paths *outside* this project, where the
+default `node_modules` ignores never match. Left alone they watch all ~33,000 files of
+`../recovery-sdk` (and `nihilium-core`'s client-sdk through it).
+
+| where | what stops it |
+|---|---|
+| `app/vite.config.ts` | `server.watch.ignored` for the linked trees, plus `optimizeDeps.include` so a linked package is pre-bundled instead of crawled as source |
+| `server/package.json` | `tsx watch --exclude`. Note it excludes **`../node_modules/**`**: this is an npm workspace, so dependencies hoist to the *root*, and excluding `./node_modules/**` matches nothing |
+
+**Your machine's half.** The limit is per user, across every process. An IDE indexing a few large
+repos routinely holds most of it — on the machine this was diagnosed on, the editor held ~59,000 of
+65,536, leaving under a thousand for everything else, which is not enough for any dev server however
+well configured. Check who is holding them:
+
+```bash
+cat /proc/sys/fs/inotify/max_user_watches     # the limit
+```
+
+Raising it is the durable fix, and it is cheap — each watch costs under a kilobyte of kernel memory:
+
+```bash
+echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/60-inotify.conf
+sudo sysctl --system
+```
+
+Stale dev servers from earlier runs also hold watches; `pgrep -af "bin/vite|bin/tsx"` finds them.

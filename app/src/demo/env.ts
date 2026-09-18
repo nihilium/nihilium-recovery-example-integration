@@ -7,15 +7,9 @@
  */
 import { DEMO_MNEMONIC } from "./mnemonic.js";
 
-export type RecoveryMode = "simulated" | "live";
-
 export interface DemoEnv {
-    /**
-     * `simulated` runs the identity ceremony locally: offline, instant, free, and every other part
-     * of the SDK real. `live` runs the actual zkEmail ceremony — it is **paid**, takes minutes, and
-     * blocks on a human answering an email.
-     */
-    mode: RecoveryMode;
+    /** The chain whose Nihilium deployment verifies email proofs. Sepolia today. */
+    chainId: number;
     serverUrl: string;
     sepoliaRpcUrl: string;
     bundlerUrl: string;
@@ -30,20 +24,25 @@ export interface DemoEnv {
     watchRegisterSecret: string | undefined;
     nihilium: {
         /**
-         * Live mode ships this to the browser, and that is an accepted demo trade-off rather than an
-         * oversight: it is a spend limit on sealing, not access to anyone's funds. A production
-         * wallet puts the payment provider behind its own backend.
+         * Shipped to the browser, and that is an accepted demo trade-off rather than an oversight:
+         * it is a spend limit on sealing, not access to anyone's funds. A production wallet puts
+         * the payment provider behind its own backend.
+         *
+         * Without it there is no ceremony, and the recovery panel says so rather than the app
+         * quietly doing something free instead.
          */
         apiKey: string | undefined;
         apiUrl: string;
         emailServiceUrl: string;
+        processorThreshold: number;
+        processorCount: number;
     };
 }
 
 export function readEnv(): DemoEnv {
     const env = import.meta.env;
     return {
-        mode: env.VITE_RECOVERY_MODE === "live" ? "live" : "simulated",
+        chainId: Number(env.VITE_CHAIN_ID ?? "11155111"),
         serverUrl: env.VITE_SERVER_URL ?? "http://localhost:8787",
         sepoliaRpcUrl: env.VITE_SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
         bundlerUrl: env.VITE_BUNDLER_URL ?? "https://public.pimlico.io/v2/11155111/rpc",
@@ -52,9 +51,12 @@ export function readEnv(): DemoEnv {
         recordAppendSecret: blank(env.VITE_RECORD_APPEND_SECRET),
         watchRegisterSecret: blank(env.VITE_WATCH_REGISTER_SECRET),
         nihilium: {
-            apiKey: env.VITE_NIHILIUM_API_KEY,
+            apiKey: blank(env.VITE_NIHILIUM_API_KEY),
             apiUrl: env.VITE_NIHILIUM_API_URL ?? "https://api.nihilium.io",
             emailServiceUrl: env.VITE_NIHILIUM_EMAIL_SERVICE_URL ?? "https://zkemail.nihilium.io",
+            // Nihilium's processor cohort. One processor is published, so both default to 1.
+            processorThreshold: Number(env.VITE_NIHILIUM_THRESHOLD ?? "1"),
+            processorCount: Number(env.VITE_NIHILIUM_PROCESSOR_COUNT ?? "1"),
         },
     };
 }

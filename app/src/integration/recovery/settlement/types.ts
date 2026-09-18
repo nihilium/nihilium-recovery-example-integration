@@ -12,6 +12,10 @@
  *   caller which one it holds, instead of a comment asking it to remember.
  *
  * The register / initiate / veto / status surface is core's and is documented there.
+ *
+ * **To replace:** nothing; it is the SDK's contract plus two demo-shaped fields. Drop `fidelity`
+ * and `fidelityNote` in an app where every chain is real. **Assumes:** a binding that reports
+ * `onchain` really is enforcing what it says.
  */
 import type { SettlementAdapter, VetoState } from "@nihilium/recovery-core";
 

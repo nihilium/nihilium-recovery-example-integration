@@ -16,6 +16,10 @@
  * Shielded addresses are out of scope for a reason that is structural rather than lazy: their
  * spending keys are not secp256k1 or ed25519, so `KeyAlgorithm` in `@nihilium/recovery-core` has no
  * member for them. See `keyAdapter.ts`.
+ *
+ * **To replace:** `balanceOf` and `deriveAccounts`' fixed three paths — a real wallet scans for used
+ * addresses rather than showing a fixed set. **Assumes:** nothing registers a recovery key on this
+ * chain, which is why `settlement` is null rather than a stub.
  */
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { deriveSecp256k1 } from "../../keys/derive.js";

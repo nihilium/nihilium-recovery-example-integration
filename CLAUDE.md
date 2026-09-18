@@ -7,7 +7,9 @@ and one file worth copying.
 It is not a wallet. It holds one plaintext 12-word seed phrase, in the open, on purpose — the point
 is to lose it convincingly, not to guard it.
 
-> **Status:** nothing is built yet. This file states the goal; it is not a log of what exists.
+> **Status:** the wallet, the role identities and the first recovery method (an email quorum, sealed
+> and recovered through the live ceremony) exist. Settlement, the watchtower, the veto, the record
+> host and the scenario runner do not. This file states the goal; it is not a log of what exists.
 
 ## The two things this repo optimises for
 
@@ -156,17 +158,27 @@ Scenarios worth having, roughly in build order:
 9. **Provider-hosted records** — the same recovery with records on `server/`, showing what the host
    can and cannot see.
 
-## Simulated by default, live by opt-in
+## Live, and only live
 
-Mirrors the SDK's own example (`../recovery-sdk/examples/quorum-recovery.mjs`): a `DemoCondition`
-stands in for the identity ceremony so the whole app runs offline, instantly and for free, with
-every other part real — real key adapters, real KDF, real stores, real envelope.
+The app runs the real ceremony: `ZKEmailConditionAdapter` over Nihilium's processor cohort. Sealing
+is **paid**, once per guardian; recovering sends real email to the guardians named and blocks until
+those humans reply — minutes, not seconds, and there is no fast path. The UI says so before anything
+is spent, and the API key reaching the browser (`NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE`) is
+an accepted demo trade-off that belongs in visible copy, not a comment.
 
-Live mode (`VITE_RECOVERY_MODE=live`) swaps in `ZKEmailConditionAdapter` and nothing else changes.
-It is **paid**, takes minutes, and blocks on a human answering an email. The UI must say so before
-spending anything, and the API key reaching the browser
-(`NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE`) is an accepted demo trade-off that belongs in
-visible copy, not a comment. The mode is one seam, bound in one place; no scenario branches on it.
+**There is no free mode to fall back to, deliberately.** A demo that quietly ran something free
+while presenting itself as real would teach the wrong thing about what a recovery costs. Without an
+API key there is no method to offer, and the recovery panel says exactly that — it does not
+degrade to a simulation.
+
+`DemoEmailConditionAdapter` and its cohort survive under `integration/conditions/simulated/` as
+**test fixtures only**, because a suite that bought a seal on every run is a suite nobody runs. They
+are not reachable from the app, and their headers say so.
+
+What *is* real regardless of any of this: the DKIM registry check. Whether zkEmail can prove a
+domain is a fact about the registry, not about the ceremony, so `preflight` hits the live service
+while the user is still typing — and blocks sealing against a domain whose share could never be
+opened.
 
 ## Claims that must not drift
 
@@ -200,6 +212,13 @@ binding on UI copy, docs and comments:
   costs us if declined.
 - **Comments explain why.** The SDK's own source is the register to match: a comment earns its place
   by explaining a constraint or a trade-off, not by restating the line under it.
+- **Status at rest, explanation on demand.** A card shows a heading, at most one sentence, its state
+  and its actions; everything longer goes inside `<Explain>` and renders only when the reader turns
+  the top-bar toggle on. The test is *reports* versus *teaches*: a domain verdict, a price before a
+  paid button, `spent.reason` or the `Demo` tag is a fact about this run and is always visible, while
+  why §12 exists or what a quorum survives is true regardless and belongs behind the toggle. Both
+  directions are pinned by `app/test/copy.test.ts`. Anything paid, slow or irreversible happens in a
+  `Dialog`, not on the page — and a dialog whose operation is in flight is not dismissible.
 - **Styling is the nihilium-design-system.** Load the skill before writing any UI and use its
   components and `--nih-*` tokens; do not invent a palette. It is a **light** system — pale-blue
   surface, near-black ink, translucent cards behind hard 2px borders — so dense and

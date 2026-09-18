@@ -189,3 +189,419 @@ body {
 .sim-badge__reason {
   color: var(--nih-color-muted-soft);
 }
+
+/* ---------- gate picker (setup and recovery ask the same question) ---------- */
+
+/* A list, not a row of tiles. These options carry a sentence each — what a gate survives, why a
+ * method is refused — and side-by-side boxes either truncate that or grow to different heights. */
+.gate-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+}
+
+.gate-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-1);
+  width: 100%;
+  padding: var(--nih-space-3) var(--nih-space-4);
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gate-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gate-option--active {
+  background: var(--nih-color-text);
+  color: var(--nih-color-on-solid);
+}
+
+.gate-option__title {
+  font-weight: var(--nih-weight-semibold);
+}
+
+.gate-option__gate,
+.gate-option__cost {
+  font-size: var(--nih-text-sm);
+  opacity: 0.85;
+}
+
+/* Why an option is refused, on the option. A disabled control with no reason is a dead end. */
+.gate-option__blocked {
+  font-size: var(--nih-text-sm);
+  line-height: var(--nih-leading-normal);
+  color: var(--nih-color-error);
+}
+
+/* A control that reads as a link, for an action with no destination. */
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------- fields, notices, members, transcript ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-1);
+}
+
+.field__label {
+  font-size: var(--nih-text-sm);
+  font-weight: var(--nih-weight-medium);
+}
+
+.notice {
+  padding: var(--nih-space-3) var(--nih-space-4);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-left: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-field);
+  font-size: var(--nih-text-sm);
+}
+
+.notice--caution {
+  border-left-color: var(--nih-color-error);
+}
+
+.reasons {
+  margin: 0;
+  padding-left: var(--nih-space-5);
+  color: var(--nih-color-muted);
+  font-size: var(--nih-text-sm);
+  line-height: var(--nih-leading-normal);
+}
+
+.members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+}
+
+.members li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--nih-space-3);
+  padding-bottom: var(--nih-space-2);
+  border-bottom: 1px solid var(--nih-color-border-subtle);
+  font-size: var(--nih-text-sm);
+}
+
+.members__who {
+  min-width: 16rem;
+  font-weight: var(--nih-weight-medium);
+}
+
+.transcript {
+  margin: 0;
+  padding: var(--nih-space-3);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-field);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--nih-text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* The disabled action is a teaching device, so it must look deliberate rather than broken. */
+.seal-card__disabled {
+  display: inline-flex;
+  cursor: help;
+}
+
+/* ---------- explain mode ---------- */
+
+/* Set apart by a rule rather than by colour: it is the same ink, and it is an aside, not a warning. */
+.explain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+  padding-left: var(--nih-space-4);
+  border-left: var(--nih-border-width) solid var(--nih-color-border-subtle);
+  color: var(--nih-color-muted);
+  font-size: var(--nih-text-sm);
+  line-height: var(--nih-leading-normal);
+}
+
+.explain p {
+  margin: 0;
+}
+
+/* ---------- protection state ---------- */
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nih-space-3);
+}
+
+/* ---------- collapsible card ---------- */
+
+/* `<details>` rather than a boolean and a click handler: it brings the open/closed state, the
+ * keyboard behaviour and the announced expanded/collapsed role with it. */
+.disclosure > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nih-space-3);
+  list-style: none;
+  cursor: pointer;
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* `Heading` carries a bottom margin for stacked prose, which in a horizontal bar sits the title
+ * off-centre against everything beside it. Layout glue is this file's job; the heading's type,
+ * weight and colour are still entirely the design system's. */
+.disclosure > summary .nih-heading,
+.card-head .nih-heading {
+  margin-bottom: 0;
+}
+
+.disclosure__marker {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 0.32rem solid transparent;
+  border-bottom: 0.32rem solid transparent;
+  border-left: 0.42rem solid var(--nih-color-text);
+  transition: transform var(--nih-duration) var(--nih-ease);
+}
+
+.disclosure[open] .disclosure__marker {
+  transform: rotate(90deg);
+}
+
+/* Pushed right so the state badge lands on the far edge of the bar, open or closed. */
+.disclosure__spacer {
+  margin-left: auto;
+}
+
+.disclosure__body {
+  margin-top: var(--nih-space-4);
+}
+
+/* The secondary row at the bottom of a card: one quiet link, one demoted action. */
+.card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nih-space-3);
+  padding-top: var(--nih-space-3);
+  border-top: 1px solid var(--nih-color-border-subtle);
+  font-size: var(--nih-text-sm);
+}
+
+/* Health deliberately has no success styling: the resting state is "nothing is watching", and a
+ * green badge over that is the misreading the whole rule exists to prevent. */
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  padding: var(--nih-space-1) var(--nih-space-3);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-full);
+  background: var(--nih-color-field);
+  font-size: var(--nih-text-sm);
+  font-weight: var(--nih-weight-medium);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.health__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: var(--nih-radius-full);
+  background: var(--nih-color-muted);
+}
+
+.health--unwatched .health__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--nih-color-muted);
+}
+
+.health--in-progress .health__dot {
+  background: var(--nih-color-accent);
+}
+
+.health--spent .health__dot {
+  background: var(--nih-color-error);
+}
+
+.protection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  padding: var(--nih-space-1) var(--nih-space-3);
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-full);
+  background: var(--nih-color-field);
+  font-size: var(--nih-text-sm);
+  font-weight: var(--nih-weight-medium);
+  white-space: nowrap;
+}
+
+.protection__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: var(--nih-radius-full);
+  background: var(--nih-color-muted);
+}
+
+/* Unprotected is hollow, sealed is half, protected is filled: the shape carries the state, so it
+ * survives a colour-blind reader and a greyscale screenshot. */
+.protection--unprotected .protection__dot,
+.protection__dot--unprotected {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--nih-color-muted);
+}
+
+.protection--sealed .protection__dot,
+.protection__dot--sealed {
+  background: var(--nih-color-text);
+  box-shadow: inset -3px 0 0 0 var(--nih-color-field);
+}
+
+.protection--protected .protection__dot,
+.protection__dot--protected {
+  background: var(--nih-color-success);
+}
+
+.protection--spent .protection__dot,
+.protection__dot--spent {
+  background: var(--nih-color-error);
+}
+
+/* ---------- dialog ---------- */
+
+.dialog {
+  width: min(42rem, calc(100vw - var(--nih-space-8)));
+  max-height: calc(100vh - var(--nih-space-12));
+  padding: 0;
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-md);
+  background: var(--nih-color-bg);
+  color: var(--nih-color-text);
+  box-shadow: var(--nih-shadow-card-hover);
+}
+
+.dialog::backdrop {
+  background: rgba(43, 43, 43, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.dialog__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--nih-space-12));
+}
+
+.dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nih-space-3);
+  padding: var(--nih-space-4) var(--nih-space-6);
+  border-bottom: 1px solid var(--nih-color-border-subtle);
+}
+
+.dialog__close {
+  padding: 0 var(--nih-space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--nih-text-2xl);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dialog__body {
+  padding: var(--nih-space-6);
+  overflow-y: auto;
+}
+
+.dialog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nih-space-3);
+  padding: var(--nih-space-4) var(--nih-space-6);
+  border-top: 1px solid var(--nih-color-border-subtle);
+  /* The brand surface, not `--nih-color-field`. Field is the near-white fill for inputs, and using
+   * it here put a white bar under a pale-blue dialog. The rule above is the separator. */
+  background: var(--nih-color-bg);
+}
+
+.dialog__foot-left {
+  display: inline-flex;
+}
+
+.dialog .transcript {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+/* ---------- domain verdicts ---------- */
+
+.field__labelled {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-1);
+}
+
+.verdict {
+  font-size: var(--nih-text-sm);
+  line-height: var(--nih-leading-normal);
+  color: var(--nih-color-muted);
+}
+
+.verdict--ok {
+  color: var(--nih-color-success);
+}
+
+.verdict--blocking {
+  color: var(--nih-color-error);
+}
+
+.verdict--warning,
+.verdict--checking {
+  color: var(--nih-color-muted-soft);
+}
+
+.verdict__recheck {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

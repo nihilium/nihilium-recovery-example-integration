@@ -8,6 +8,9 @@
  *
  * A non-hardened index has no defined answer here, so this throws rather than deriving something
  * that looks like a key and is not the one any other wallet would produce.
+ *
+ * **To replace:** nothing — this is the published scheme, pinned against its own test vectors.
+ * **Assumes:** hardened segments only, which is all SLIP-0010 ed25519 defines.
  */
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha512 } from "@noble/hashes/sha2.js";

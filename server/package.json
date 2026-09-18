@@ -4,17 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --exclude '../node_modules/**' --exclude 'node_modules/**' --exclude '../../recovery-sdk/**' src/index.ts",
     "start": "tsx src/index.ts",
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },
   "dependencies": {
-    "@nihilium/recovery-core": "^0.7.2",
+    "@nihilium/recovery-core": "file:../../recovery-sdk/packages/core",
     "@nihilium/recovery-onchain-evm": "file:../../recovery-sdk/onchain/evm",
     "@nihilium/recovery-service": "file:../../recovery-sdk/packages/service",
-    "@nihilium/recovery-storage-local": "^0.7.2",
+    "@nihilium/recovery-storage-local": "file:../../recovery-sdk/packages/adapters/storage-local",
     "@nihilium/recovery-watchtower": "file:../../recovery-sdk/packages/watchtower",
     "@nihilium/recovery-watchtower-evm": "file:../../recovery-sdk/packages/adapters/watchtower-evm",
     "@nihilium/recovery-watchtower-nihilium": "file:../../recovery-sdk/packages/adapters/watchtower-nihilium",

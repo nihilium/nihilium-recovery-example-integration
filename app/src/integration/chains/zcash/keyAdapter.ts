@@ -19,6 +19,10 @@
  * What this adapter deliberately does not do is make Zcash *recoverable*. A recovery key is only
  * protection once a chain has somewhere to register it, and a transparent address has nowhere —
  * see `index.ts`.
+ *
+ * **To replace:** nothing to use it as-is on Zcash transparent. On another secp256k1 UTXO chain,
+ * only the address encoding next door changes. **Assumes:** the caller computes the sighash; this
+ * adapter never sees a transaction.
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import {

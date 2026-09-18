@@ -9,6 +9,9 @@
  * Each is the chain's own convention, so an address here matches what a mainstream wallet shows for
  * the same phrase. That is worth more than tidiness: it lets a reader check our arithmetic against
  * MetaMask or Phantom.
+ *
+ * **To replace:** these strings, once, before anything is sealed — and never afterwards. **Assumes:**
+ * one account per chain (three for Zcash); a wallet with many would index them here.
  */
 
 /** BIP-44 coin type 60. What MetaMask shows for account 1. */
