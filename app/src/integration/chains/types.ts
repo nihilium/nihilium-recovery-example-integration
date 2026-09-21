@@ -13,14 +13,24 @@
 import type { KeyAdapter, PublicKey, Signature, Tier } from "@nihilium/recovery-core";
 import type { SettlementBinding } from "../recovery/settlement/types.js";
 
-/** Matches `ui/icons.tsx`. A *name*, not a component: React may not cross the copy line. */
+/**
+ * A *name*, not a component: React may not cross the copy line.
+ *
+ * The first six are the design system's Heroicons, for anything conceptual. The lowercase three are
+ * the chains' own marks — a chain tab showing a generic shield says nothing about which chain it is,
+ * and the design system is not the place for brand logos it does not own. `ui/icons.tsx` resolves
+ * every one of these and fails to compile if it misses one.
+ */
 export type IconName =
     | "ShieldCheck"
     | "Key"
     | "LockClosed"
     | "Clock"
     | "UserGroup"
-    | "DocumentCheck";
+    | "DocumentCheck"
+    | "ethereum"
+    | "solana"
+    | "zcash";
 
 export interface ChainModule {
     readonly id: string;
@@ -56,6 +66,43 @@ export interface ChainModule {
 
     /** `null` until a chain has somewhere to register a recovery key. */
     readonly settlement: SettlementBinding | null;
+
+    /**
+     * Moving value out. `null` on a chain this demo has not wired, which is most of them.
+     *
+     * It sits on the chain module rather than in a component because every chain answers it
+     * differently — a UserOp here, a system-program transfer on Solana, a UTXO spend on Zcash — and
+     * a send form that knew which was which would be a form that has to grow a branch per chain.
+     */
+    readonly send: SendCapability | null;
+}
+
+export interface SendRequest {
+    from: DerivedAccount;
+    to: string;
+    /** Base units, the same unit as `Balance.raw` — wei here, lamports there. Never a float. */
+    amount: bigint;
+    onProgress?(message: string): void;
+}
+
+export interface SendReceipt {
+    hash: string;
+    explorerUrl: string | null;
+    /** `simulated` where nothing left a chain. Travels with the receipt so a badge cannot be forgotten. */
+    fidelity: "onchain" | "simulated";
+}
+
+export interface SendCapability {
+    /**
+     * What must stay behind, in base units.
+     *
+     * An account that pays for its own transaction cannot send everything it holds: the operation is
+     * rejected for insufficient funds *during validation*, after the user has been told the amount
+     * was fine. Subtracting a reserve is the difference between a "Max" button that works and one
+     * that fails every time. Zero where something else pays the fee.
+     */
+    reserve(): bigint;
+    send(request: SendRequest): Promise<SendReceipt>;
 }
 
 export type ExplorerRef = { kind: "address"; value: string } | { kind: "tx"; value: string };

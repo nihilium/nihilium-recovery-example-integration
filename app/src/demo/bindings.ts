@@ -63,7 +63,10 @@ export function createAppBindings(): AppBindings {
 
     return {
         env,
-        chains: createChainRegistry({ evmRpcUrl: env.sepoliaRpcUrl }),
+        chains: createChainRegistry({
+            evmRpcUrl: env.sepoliaRpcUrl,
+            evmBundlerUrl: env.bundlerUrl,
+        }),
         methods,
         methodError,
         vaults,

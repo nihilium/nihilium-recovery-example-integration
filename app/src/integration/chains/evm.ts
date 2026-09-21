@@ -20,10 +20,28 @@ import { sepolia } from "viem/chains";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { deriveSecp256k1 } from "../keys/derive.js";
 import { EVM_PATH } from "../keys/paths.js";
-import type { Balance, ChainModule, DerivedAccount, ExplorerRef } from "./types.js";
+import { createKernelClient } from "./kernelClient.js";
+import type {
+    Balance,
+    ChainModule,
+    DerivedAccount,
+    ExplorerRef,
+    SendReceipt,
+} from "./types.js";
+
+/**
+ * Held back from a "send everything" so the operation can pay for itself.
+ *
+ * 0.001 ETH. The account has no paymaster, so it funds its own prefund out of the same balance; a
+ * Max button that offered the whole lot would be rejected during validation every time, after the
+ * amount had already been shown as acceptable.
+ */
+const GAS_RESERVE_WEI = 1_000_000_000_000_000n;
 
 export interface EvmChainOptions {
     rpcUrl: string;
+    /** Where UserOps go. Sending and installing the recovery module both need one. */
+    bundlerUrl: string;
     /** Sepolia. The namespace is pinned below rather than derived from this, deliberately. */
     chainId?: 11155111;
 }
@@ -40,7 +58,7 @@ export function createEvmSepoliaChain(options: EvmChainOptions): ChainModule {
     return {
         id: "evm-sepolia",
         label: "EVM · Sepolia",
-        icon: "ShieldCheck",
+        icon: "ethereum",
         // CAIP-2, pinned. An HKDF input — see `ChainModule.namespace`.
         namespace: "eip155:11155111",
         tier: "smart-account",
@@ -105,5 +123,39 @@ export function createEvmSepoliaChain(options: EvmChainOptions): ChainModule {
 
         // Real settlement lands with the EVM binding; until then this chain honestly has none.
         settlement: null,
+
+        send: {
+            reserve: () => GAS_RESERVE_WEI,
+
+            async send({ from, to, amount, onProgress }): Promise<SendReceipt> {
+                const { client } = await createKernelClient({
+                    rpcUrl: options.rpcUrl,
+                    bundlerUrl: options.bundlerUrl,
+                    ownerPrivateKeyHex: from.signer.exportPrivateKeyHex_DEMO_ONLY(),
+                });
+
+                onProgress?.(`send       ${amount} wei to ${to}`);
+                const userOpHash = await client.sendUserOperation({
+                    calls: [{ to: to as `0x${string}`, value: amount, data: "0x" }],
+                });
+                onProgress?.(`userOp     ${userOpHash} — waiting for the bundler`);
+
+                const receipt = await client.waitForUserOperationReceipt({ hash: userOpHash });
+                // Mined is not the same as succeeded: a UserOp can revert inside the account and the
+                // bundler is paid either way.
+                if (!receipt.success) {
+                    throw new Error(
+                        `The transfer was mined in ${receipt.receipt.transactionHash} but reverted ` +
+                            "inside the account. Nothing was sent, and the gas is spent.",
+                    );
+                }
+
+                return {
+                    hash: receipt.receipt.transactionHash,
+                    explorerUrl: `https://sepolia.etherscan.io/tx/${receipt.receipt.transactionHash}`,
+                    fidelity: "onchain",
+                };
+            },
+        },
     };
 }

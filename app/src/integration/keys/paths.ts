@@ -18,6 +18,16 @@
 export const EVM_PATH = "m/44'/60'/0'/0/0";
 
 /**
+ * Account 2 on the same phrase — "the new device", where a recovery hands control.
+ *
+ * A separate account index rather than the wallet's own, because handing control back to
+ * `EVM_PATH` would hand it to the key the recovery exists to replace. In a real recovery this is a
+ * key on hardware the user still has; here it is the next account along, which is the closest a
+ * single-seed demo can get and is labelled as such.
+ */
+export const EVM_RECOVERY_TARGET_PATH = "m/44'/60'/1'/0/0";
+
+/**
  * Coin type 501, fully hardened — Phantom's and Solflare's path. ed25519 has no unhardened
  * derivation at all under SLIP-0010, so the trailing `'` is not a style choice.
  */

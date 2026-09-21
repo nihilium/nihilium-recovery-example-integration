@@ -1,153 +1,367 @@
 /**
- * Running the gate: name the guardians you can reach, then wait for them.
+ * Running the gate, and saying where control should end up.
  *
- * A dialog for the same reason sealing is one, plus a sharper one: from the moment it starts, real
- * people have been emailed. It cannot be dismissed while it runs, and the guardians it never asked
- * are shown as prominently as the ones it did — "never contacted" and "declined" are different
- * facts, and only one of them is about the guardian.
+ * Two things were missing and one was wrong. Missing: the **target** — a recovery that hands back a
+ * key and stops has not recovered anything, and nothing here ever asked the question the whole
+ * mechanism exists for. Missing: the rows — who was asked, what phase they are in, how long it has
+ * taken, and what key came out. Wrong: it read as an explanation of a recovery rather than a report
+ * of one.
+ *
+ * The recovered key is the authority that *signs* the handover. The target is where control lands.
+ * They are different, they default to different values, and conflating them would hand the account
+ * to a key derived from a vault that is now spent.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
-import { Button, StatusMessage } from "./ds.js";
+import type { ChainModule } from "../integration/chains/types.js";
+import type { RecoveryChain } from "../demo/useRecoveryChain.js";
+import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Explain } from "./Explain.js";
 import { Notice } from "./Notice.js";
+import { RecoveredKey } from "./RecoveredKey.js";
+
+export interface RecoveryTarget {
+    kind: "derived" | "pasted";
+    address: string;
+}
 
 export function RecoverDialog({
     open,
     onClose,
     flow,
     vault,
+    chain,
+    /** A fresh account from the demo seed — "the new device". Absent until the wallet has derived it. */
+    suggestedTarget,
+    onchain,
 }: {
     open: boolean;
     onClose: () => void;
     flow: RecoveryFlow;
     vault: VaultRecord;
+    chain: ChainModule;
+    suggestedTarget: { address: string; derivationPath: string } | undefined;
+    /** The on-chain half. Separate hook, separate failures — see `useRecoveryChain`. */
+    onchain: RecoveryChain;
 }) {
     const { state } = flow;
     const gate = vault.gate;
-    // Mounted only while it is open (see `RecoveryCard`), so the selection starts empty each time
-    // rather than being cleared by an effect.
+    // Mounted only while it is open (see `RecoveryCard`), so every field starts fresh each run.
     const [picked, setPicked] = useState<number[]>([]);
+    const [useSuggested, setUseSuggested] = useState(true);
+    const [pastedTarget, setPastedTarget] = useState("");
+    const [startedAt, setStartedAt] = useState<number | null>(null);
+    const [now, setNow] = useState(() => Date.now());
+
     const running = state.phase === "recovering";
     const complete = picked.length === gate.threshold;
+    const target = useSuggested ? (suggestedTarget?.address ?? "") : pastedTarget.trim();
+    const targetValid = /^0x[0-9a-fA-F]{40}$/.test(target);
+
+    // One timer for the whole table rather than one per row: the elapsed column is the only thing
+    // that changes between ticks, and n intervals to render n cells is n times the re-renders.
+    useEffect(() => {
+        if (!running) return;
+        const id = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, [running]);
+
+    function start(): void {
+        setStartedAt(Date.now());
+        void flow.recover(picked);
+    }
+
+    function close(): void {
+        // The key does not outlive the screen that needed it.
+        flow.forgetKey();
+        onchain.reset();
+        onClose();
+    }
+
+    const material = state.result?.material ?? null;
+    const submitting =
+        onchain.state.phase !== "idle" &&
+        onchain.state.phase !== "failed" &&
+        onchain.state.phase !== "done";
 
     return (
         <Dialog
             open={open}
             title="Recover this account"
-            onClose={onClose}
+            onClose={close}
             // From `Start recovery` onward this has emailed real people; there is no undo to offer.
             dismissible={!running}
             footer={
                 state.result !== null ? (
                     <DialogActions>
-                        <Button onClick={onClose}>Close</Button>
+                        <Button onClick={close}>Close</Button>
                     </DialogActions>
                 ) : (
                     <DialogActions>
-                        <Button onClick={() => void flow.recover(picked)} disabled={!complete || running}>
+                        <Button
+                            onClick={start}
+                            disabled={!complete || !targetValid || running}
+                        >
                             {running
                                 ? "Waiting on the guardians…"
-                                : complete
-                                  ? "Start recovery"
-                                  : `Pick ${gate.threshold - picked.length} more`}
+                                : !complete
+                                  ? `Pick ${gate.threshold - picked.length} more`
+                                  : !targetValid
+                                    ? "Name where control should go"
+                                    : "Start recovery"}
                         </Button>
                     </DialogActions>
                 )
             }
         >
             <div className="stack">
-                <p className="muted">
-                    Pick exactly {gate.threshold} of the {gate.subjectCount}.
-                </p>
+                {state.result === null && (
+                    <>
+                        <div className="field">
+                            <span className="field__label">
+                                Ask {gate.threshold} of {gate.subjectCount}
+                            </span>
+                            <div className="gate-picker">
+                                {gate.subjects.map((subject) => {
+                                    const chosen = picked.includes(subject.index);
+                                    const full = !chosen && picked.length >= gate.threshold;
+                                    return (
+                                        <button
+                                            key={subject.index}
+                                            type="button"
+                                            className={
+                                                chosen
+                                                    ? "gate-option gate-option--active"
+                                                    : "gate-option"
+                                            }
+                                            aria-pressed={chosen}
+                                            // Capped here rather than letting the quorum refuse it
+                                            // minutes later.
+                                            disabled={full || running}
+                                            onClick={() =>
+                                                setPicked(
+                                                    chosen
+                                                        ? picked.filter((i) => i !== subject.index)
+                                                        : [...picked, subject.index],
+                                                )
+                                            }
+                                        >
+                                            <span className="gate-option__title">
+                                                #{subject.index} {subject.label}
+                                            </span>
+                                            <span className="gate-option__gate">
+                                                {chosen
+                                                    ? "will be emailed"
+                                                    : full
+                                                      ? "—"
+                                                      : "tap to use"}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
 
-                <div className="gate-picker">
-                    {gate.subjects.map((subject) => {
-                        const chosen = picked.includes(subject.index);
-                        const full = !chosen && picked.length >= gate.threshold;
-                        return (
-                            <button
-                                key={subject.index}
-                                type="button"
-                                className={chosen ? "gate-option gate-option--active" : "gate-option"}
-                                aria-pressed={chosen}
-                                // Capped here rather than letting the quorum refuse it minutes later.
-                                disabled={full || running || state.result !== null}
-                                onClick={() =>
-                                    setPicked(
-                                        chosen
-                                            ? picked.filter((index) => index !== subject.index)
-                                            : [...picked, subject.index],
-                                    )
-                                }
-                            >
-                                <span className="gate-option__title">{subject.label}</span>
-                                <span className="gate-option__gate">
-                                    {chosen ? "Will be contacted" : full ? "—" : "Tap to use"}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
+                        <div className="field">
+                            <span className="field__label">Recover to</span>
+                            <label className="row">
+                                <input
+                                    type="radio"
+                                    name="target"
+                                    checked={useSuggested}
+                                    disabled={running || suggestedTarget === undefined}
+                                    onChange={() => setUseSuggested(true)}
+                                />
+                                <span>A new key on this device</span>
+                                <code className="mono muted">
+                                    {suggestedTarget?.address ?? "deriving…"}
+                                </code>
+                            </label>
+                            <label className="row">
+                                <input
+                                    type="radio"
+                                    name="target"
+                                    checked={!useSuggested}
+                                    disabled={running}
+                                    onChange={() => setUseSuggested(false)}
+                                />
+                                <span>An address I paste</span>
+                            </label>
+                            {!useSuggested && (
+                                <TextInput
+                                    value={pastedTarget}
+                                    ariaLabel="Recovery target address"
+                                    placeholder="0x…"
+                                    onChange={(event) => setPastedTarget(event.target.value)}
+                                    disabled={running}
+                                />
+                            )}
+                        </div>
 
-                <Explain>
-                    <p>
-                        Each one you pick runs a ceremony and waits for a human; the others are never
-                        contacted at all, and their share is never requested. That is what a k-of-n
-                        buys — not a vote, an absence.
-                    </p>
-                </Explain>
+                        <Explain>
+                            <p>
+                                This is the address that ends up controlling the account. It is
+                                deliberately <em>not</em> the recovered key: that key signs the
+                                handover, and it comes from a vault this recovery spends. Handing
+                                control to it would hand control to something derived from a secret
+                                the ceremony just exposed.
+                            </p>
+                            <p>
+                                Each guardian you pick runs a ceremony and waits for a human; the
+                                others are never contacted at all, and their share is never
+                                requested. That is what a k-of-n buys — not a vote, an absence.
+                            </p>
+                        </Explain>
+                    </>
+                )}
 
                 {state.members.length > 0 && (
-                    <ul className="members">
-                        {state.members.map((member) => {
-                            const prompt = state.prompts[member.index];
-                            return (
-                                <li key={member.index}>
-                                    <span className="members__who">
-                                        #{member.index} {member.label}
-                                    </span>
-                                    <code>{phaseLabel(member.phase.kind)}</code>
-                                    {member.message !== undefined && (
-                                        <span className="muted">{member.message}</span>
-                                    )}
-                                    {prompt !== undefined && (
-                                        <span className="row">
-                                            <Button onClick={() => flow.answerPrompt(member.index, true)}>
-                                                Simulate the reply
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                onClick={() => flow.answerPrompt(member.index, false)}
-                                            >
-                                                Never answers
-                                            </Button>
-                                        </span>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
+                    <table className="members-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>guardian</th>
+                                <th>phase</th>
+                                <th>elapsed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {state.members.map((member) => {
+                                const asked = member.phase.kind !== "idle";
+                                return (
+                                    <tr key={member.index} data-contacted={String(asked)}>
+                                        <td>{member.index}</td>
+                                        <td>{member.label}</td>
+                                        <td>
+                                            {phaseLabel(member.phase.kind)}
+                                            {member.message !== undefined && (
+                                                <>
+                                                    {" "}
+                                                    <span className="muted">{member.message}</span>
+                                                </>
+                                            )}
+                                        </td>
+                                        <td>
+                                            {asked && startedAt !== null
+                                                ? elapsed(startedAt, now)
+                                                : "—"}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 )}
 
                 {state.result !== null && (
-                    <div className="stack">
-                        <StatusMessage tone="success">
-                            Recovered. The key matches the one this vault registered.
-                        </StatusMessage>
-                        <p className="mono">{state.result.publicKeyHex}</p>
-                        <p className="muted">
-                            Contacted: {state.result.contacted.join(", ")} · never contacted:{" "}
-                            {state.result.untouched.join(", ") || "none"} — not declined, never asked.
-                        </p>
-                        {/* Verbatim, never paraphrased: what a recovery costs is the SDK's sentence. */}
+                    <>
+                        <RecoveredKey
+                            algorithm={state.result.algorithm}
+                            publicKeyHex={state.result.publicKeyHex}
+                            address={null}
+                            material={state.result.material}
+                            matchesVault
+                            contacted={state.result.contacted}
+                            untouched={state.result.untouched}
+                        />
+                        {/* The SDK's own sentence, verbatim: what a recovery cost. */}
                         <Notice tone="caution">{state.result.spentReason}</Notice>
-                    </div>
+                        <StatusMessage tone="success">
+                            The vault is open and the key is yours. The account has <strong>not</strong>{" "}
+                            changed hands — that is the on-chain step, below.
+                        </StatusMessage>
+
+                        <dl className="rows">
+                            <dt>hands control to</dt>
+                            <dd>{target || "—"}</dd>
+                            {onchain.state.intentHash !== null && (
+                                <>
+                                    <dt>intent hash</dt>
+                                    <dd>{onchain.state.intentHash}</dd>
+                                </>
+                            )}
+                            {onchain.attempt !== null && (
+                                <>
+                                    <dt>on-chain</dt>
+                                    <dd>
+                                        {onchain.attempt.state ?? "no attempt"} ·{" "}
+                                        {String(onchain.attempt.accruedSeconds)}s accrued
+                                    </dd>
+                                </>
+                            )}
+                        </dl>
+
+                        {onchain.state.problems.map((problem) => (
+                            <StatusMessage
+                                key={problem.code}
+                                tone={problem.blocking ? "error" : "success"}
+                            >
+                                {problem.message}
+                            </StatusMessage>
+                        ))}
+
+                        <div className="row">
+                            {onchain.state.phase === "waiting" ||
+                            onchain.state.phase === "executing" ? (
+                                <Button
+                                    onClick={() => void onchain.execute()}
+                                    disabled={
+                                        onchain.attempt?.state !== "EXECUTABLE" ||
+                                        onchain.state.phase === "executing"
+                                    }
+                                >
+                                    {onchain.state.phase === "executing"
+                                        ? "Executing…"
+                                        : onchain.attempt?.state === "EXECUTABLE"
+                                          ? `Execute on ${chain.label}`
+                                          : "Timelock running…"}
+                                </Button>
+                            ) : onchain.state.phase === "done" ? (
+                                <StatusMessage tone="success">
+                                    Control moved to {target}.
+                                </StatusMessage>
+                            ) : (
+                                <Button
+                                    onClick={() =>
+                                        material !== null &&
+                                        void onchain.initiate({
+                                            target: target as `0x${string}`,
+                                            material,
+                                        })
+                                    }
+                                    disabled={
+                                        !onchain.supported ||
+                                        material === null ||
+                                        !targetValid ||
+                                        submitting
+                                    }
+                                >
+                                    {!onchain.supported
+                                        ? `No settlement on ${chain.label}`
+                                        : material === null
+                                          ? "The key has been dropped"
+                                          : submitting
+                                            ? "Submitting…"
+                                            : `Initiate on ${chain.label}`}
+                                </Button>
+                            )}
+                        </div>
+
+                        {onchain.state.log.length > 0 && (
+                            <pre className="transcript">{onchain.state.log.join("\n")}</pre>
+                        )}
+                        {onchain.state.error !== null && (
+                            <StatusMessage tone="error">{onchain.state.error}</StatusMessage>
+                        )}
+                    </>
                 )}
 
-                {state.log.length > 0 && <pre className="transcript">{state.log.join("\n")}</pre>}
+                {/* This operation's transcript only. A shared one showed the seal's lines here. */}
+                {state.logs.recover.length > 0 && (
+                    <pre className="transcript">{state.logs.recover.join("\n")}</pre>
+                )}
 
                 {state.error !== null && <StatusMessage tone="error">{state.error}</StatusMessage>}
             </div>
@@ -158,9 +372,9 @@ export function RecoverDialog({
 function phaseLabel(kind: string): string {
     switch (kind) {
         case "requesting":
-            return "asking…";
+            return "asking";
         case "awaiting-human":
-            return "waiting for a reply";
+            return "awaiting reply";
         case "proving":
             return "proving";
         case "done":
@@ -170,4 +384,9 @@ function phaseLabel(kind: string): string {
         default:
             return "not contacted";
     }
+}
+
+function elapsed(from: number, to: number): string {
+    const seconds = Math.max(0, Math.floor((to - from) / 1000));
+    return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }

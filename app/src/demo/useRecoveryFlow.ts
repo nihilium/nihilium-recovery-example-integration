@@ -9,6 +9,7 @@
  * card read the same vault and must never disagree about it.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { KeyAlgorithm } from "@nihilium/recovery-core";
 import type { ChainModule, DerivedAccount } from "../integration/chains/types.js";
 import type {
     MethodRegistry,
@@ -16,12 +17,20 @@ import type {
     SubjectPhase,
     SubjectPrompt,
 } from "../integration/conditions/types.js";
-import { recoverVault, resealVault, sealVault } from "../integration/recovery/vault.js";
+import {
+    addChainToVault,
+    recoverVault,
+    resealVault,
+    sealVault,
+} from "../integration/recovery/vault.js";
 import { toSealFile, type SealFile } from "../integration/recovery/sealFile.js";
 import { nextVaultId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
 import type { AppBindings } from "./bindings.js";
 
 export type FlowPhase = "idle" | "sealing" | "sealed" | "recovering" | "recovered" | "failed";
+
+/** Which operation a transcript line belongs to. */
+export type LogChannel = "seal" | "addChain" | "recover";
 
 export interface MemberView {
     index: number;
@@ -45,12 +54,27 @@ export interface FlowState {
      * human answer their mail. A guardian's row sits in `awaiting-human` until they actually reply.
      */
     prompts: Record<number, SubjectPrompt>;
-    log: string[];
+    /**
+     * One transcript per operation, never one shared array.
+     *
+     * It used to be shared, and the seal's lines were still on screen when the recover dialog
+     * opened — a transcript is a report of *an operation*, so a line from a different one is not
+     * stale decoration, it is the screen attributing work to something that did not do it.
+     */
+    logs: Record<LogChannel, string[]>;
     error: string | null;
     result: {
         contacted: readonly number[];
         untouched: readonly number[];
+        algorithm: KeyAlgorithm;
+        /** Derived in `recoverVault` with this chain's adapter, never re-derived by a caller. */
         publicKeyHex: string;
+        /**
+         * The private half, in `rawKey` mode. Held because the on-chain handover cannot be signed
+         * without it — and shown, because a wallet that says "recovered" and displays nothing is
+         * asking to be taken on trust.
+         */
+        material: Uint8Array | null;
         spentReason: string;
     } | null;
 }
@@ -61,7 +85,7 @@ const EMPTY: FlowState = {
     sealFile: null,
     members: [],
     prompts: {},
-    log: [],
+    logs: { seal: [], addChain: [], recover: [] },
     error: null,
     result: null,
 };
@@ -91,9 +115,18 @@ export function useRecoveryFlow(
         };
     }, [bindings]);
 
-    const note = useCallback((line: string) => {
-        setState((prev) => ({ ...prev, log: [...prev.log, line] }));
+    const note = useCallback((channel: LogChannel, line: string) => {
+        setState((prev) => ({
+            ...prev,
+            logs: { ...prev.logs, [channel]: [...prev.logs[channel], line] },
+        }));
     }, []);
+
+    // Bound per channel so they can be handed straight to an `onProgress` that takes a bare string,
+    // and memoized so passing one does not re-run the effects that depend on it.
+    const noteSeal = useCallback((line: string) => note("seal", line), [note]);
+    const noteAddChain = useCallback((line: string) => note("addChain", line), [note]);
+    const noteRecover = useCallback((line: string) => note("recover", line), [note]);
 
     /** The vault covering one chain. A vault covers the chains `addChain()` was called for, not all. */
     const vaultFor = useCallback(
@@ -104,6 +137,17 @@ export function useRecoveryFlow(
 
     const active = vaultFor(chain.id);
 
+    /**
+     * The vault this wallet holds, whether or not it covers the chain on screen.
+     *
+     * The distinction matters and used to be missing: `vaultFor` answers "is *this chain* in a
+     * vault", and switching to Solana therefore looked like having no recovery at all — offering a
+     * second paid ceremony for a wallet that already had a perfectly good gate. One vault covers
+     * every chain added to it; the fix is `addChain()`, which is free.
+     */
+    const vault = state.vaults.at(-1) ?? null;
+    const covers = active !== null;
+
     const runSeal = useCallback(
         async (
             methodId: string,
@@ -113,7 +157,13 @@ export function useRecoveryFlow(
         ) => {
             const method = methods?.get(methodId) ?? null;
             if (method === null || account === undefined) return;
-            setState((prev) => ({ ...prev, phase: "sealing", error: null, log: [], members: [] }));
+            setState((prev) => ({
+                ...prev,
+                phase: "sealing",
+                error: null,
+                logs: { ...prev.logs, seal: [] },
+                members: [],
+            }));
             try {
                 const params = {
                     method,
@@ -123,8 +173,8 @@ export function useRecoveryFlow(
                     account,
                     vaultId: nextVaultId(account.accountId, state.vaults),
                     onSubjectSealed: (event: { index: number; summary: string }) =>
-                        note(`sealVault  #${event.index}  ${event.summary}`),
-                    onProgress: note,
+                        noteSeal(`sealVault  #${event.index}  ${event.summary}`),
+                    onProgress: noteSeal,
                 };
                 const { vault, seal: sealBlob } =
                     replacing === null
@@ -133,8 +183,8 @@ export function useRecoveryFlow(
                               ...params,
                               replacing: replacing.vaultId,
                           });
-                note(`seal       recordId=${vault.recordId}`);
-                note(`seal       ${vault.chains[0]?.writeMs ?? 0} ms · ${subjects.length} ceremonies`);
+                noteSeal(`seal       recordId=${vault.recordId}`);
+                noteSeal(`seal       ${vault.chains[0]?.writeMs ?? 0} ms · ${subjects.length} ceremonies`);
                 setState((prev) => ({
                     ...prev,
                     phase: "sealed",
@@ -151,7 +201,7 @@ export function useRecoveryFlow(
                 setState((prev) => ({ ...prev, phase: "failed", error: messageOf(error) }));
             }
         },
-        [account, bindings, chain, methods, note, state.vaults],
+        [account, bindings, chain, methods, noteSeal, state.vaults],
     );
 
     const seal = useCallback(
@@ -167,6 +217,30 @@ export function useRecoveryFlow(
         [active, runSeal],
     );
 
+    /** Free, offline, and contacts nobody. The asymmetry against `seal` is the lesson. */
+    const addChain = useCallback(async () => {
+        const method = vault === null ? null : (methods?.get(vault.gate.methodId) ?? null);
+        if (vault === null || method === null || account === undefined || covers) return;
+        setState((prev) => ({ ...prev, error: null, logs: { ...prev.logs, addChain: [] } }));
+        try {
+            const updated = await addChainToVault(bindings.stores, {
+                method,
+                vault,
+                chain,
+                account,
+                onProgress: noteAddChain,
+            });
+            setState((prev) => ({
+                ...prev,
+                vaults: prev.vaults.map((row) =>
+                    row.vaultId === updated.vaultId ? updated : row,
+                ),
+            }));
+        } catch (error) {
+            setState((prev) => ({ ...prev, error: messageOf(error) }));
+        }
+    }, [account, bindings, chain, covers, methods, noteAddChain, vault]);
+
     const recover = useCallback(
         async (selected: readonly number[]) => {
             const vault = active;
@@ -181,6 +255,7 @@ export function useRecoveryFlow(
                 phase: "recovering",
                 error: null,
                 result: null,
+                logs: { ...prev.logs, recover: [] },
                 members: vault.gate.subjects.map((subject) => ({
                     index: subject.index,
                     label: subject.label,
@@ -199,7 +274,7 @@ export function useRecoveryFlow(
                     vault,
                     chainRecord,
                     ...(state.sealFile ? { seal: state.sealFile.seal } : {}),
-                    onProgress: note,
+                    onProgress: noteRecover,
                     onSubjectProgress: (index, message) =>
                         setState((prev) => ({
                             ...prev,
@@ -216,15 +291,15 @@ export function useRecoveryFlow(
                         })),
                 });
 
-                const publicKeyHex =
-                    outcome.authority.kind === "capability"
-                        ? bytesToHexLocal(outcome.authority.capability.publicKey.bytes)
-                        : "(raw key)";
-                // Zeroized as soon as the demo is done with it: the capability is scoped, and the key
-                // it holds is assembled — not never-assembled, whatever a marketing page might say.
-                if (outcome.authority.kind === "capability") outcome.authority.capability.zeroize();
+                // The key is *assembled* — not never-assembled, whatever a marketing page might
+                // say — and in `rawKey` mode this demo holds the bytes so it can show them and sign
+                // the on-chain handover with them. They live until `forgetKey()` or a reload; there
+                // is no zeroizing scope in this mode, which is the cost of being able to look.
+                const material =
+                    outcome.authority.kind === "rawKey" ? outcome.authority.material : null;
 
-                note(`openRecords ${selected.length} shares combined`);
+                noteRecover(`openRecords ${selected.length} shares combined`);
+                noteRecover(`recovered  ${chainRecord.algorithm} ${outcome.publicKeyHex}`);
                 const spent = { at: Date.now(), reason: outcome.spent.reason };
                 setState((prev) => ({
                     ...prev,
@@ -242,7 +317,9 @@ export function useRecoveryFlow(
                     result: {
                         contacted: outcome.contacted,
                         untouched: outcome.untouched,
-                        publicKeyHex,
+                        algorithm: chainRecord.algorithm,
+                        publicKeyHex: outcome.publicKeyHex,
+                        material,
                         spentReason: outcome.spent.reason,
                     },
                 }));
@@ -255,8 +332,23 @@ export function useRecoveryFlow(
                 }));
             }
         },
-        [active, bindings, chain, methods, note, state.sealFile],
+        [active, bindings, chain, methods, noteRecover, state.sealFile],
     );
+
+    /**
+     * Drop the recovered private key.
+     *
+     * Called when the recovery dialog closes. It cannot undo the exposure — the bytes have been in
+     * JS memory and may sit in a heap snapshot — but a key still reachable from app state after the
+     * screen that needed it has gone is a key nobody is thinking about any more.
+     */
+    const forgetKey = useCallback(() => {
+        setState((prev) => {
+            if (prev.result?.material == null) return prev;
+            prev.result.material.fill(0);
+            return { ...prev, result: { ...prev.result, material: null } };
+        });
+    }, []);
 
     const answerPrompt = useCallback((index: number, accept: boolean) => {
         setState((prev) => {
@@ -274,8 +366,8 @@ export function useRecoveryFlow(
     }, []);
 
     return useMemo(
-        () => ({ state, active, vaultFor, seal, reseal, recover, answerPrompt, clearError }),
-        [state, active, vaultFor, seal, reseal, recover, answerPrompt, clearError],
+        () => ({ state, active, vault, covers, vaultFor, seal, reseal, addChain, recover, forgetKey, answerPrompt, clearError }),
+        [state, active, vault, covers, vaultFor, seal, reseal, addChain, recover, forgetKey, answerPrompt, clearError],
     );
 }
 
@@ -283,8 +375,4 @@ export type RecoveryFlow = ReturnType<typeof useRecoveryFlow>;
 
 function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-}
-
-function bytesToHexLocal(bytes: Uint8Array): string {
-    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

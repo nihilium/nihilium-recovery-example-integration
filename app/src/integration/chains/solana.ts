@@ -27,7 +27,7 @@ export function createSolanaDevnetChain(): ChainModule {
     return {
         id: "solana-devnet",
         label: "Solana · devnet",
-        icon: "Key",
+        icon: "solana",
         // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
         // name — `solana:devnet` is not a chain id, it just looks like one, and it would have sealed
         // perfectly happily. The namespace is a KDF input, so a wrong value is not a bug that gets
@@ -78,6 +78,8 @@ export function createSolanaDevnetChain(): ChainModule {
         },
 
         settlement: null,
+        // No transfer wired: this demo does not hold a devnet connection to submit one.
+        send: null,
     };
 }
 

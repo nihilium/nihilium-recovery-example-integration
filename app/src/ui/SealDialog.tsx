@@ -22,6 +22,7 @@ import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Explain } from "./Explain.js";
+import { Notice } from "./Notice.js";
 import { downloadSeal } from "./downloadSeal.js";
 import { SealRow } from "./SealRow.js";
 
@@ -269,8 +270,8 @@ export function SealDialog({
                     {/* The price, before the button that spends it. This reports, so it always shows. */}
                     <p>{method.cost.describe(preset)}</p>
 
-                    {flow.state.log.length > 0 && (
-                        <pre className="transcript">{flow.state.log.join("\n")}</pre>
+                    {flow.state.logs.seal.length > 0 && (
+                        <pre className="transcript">{flow.state.logs.seal.join("\n")}</pre>
                     )}
                     {flow.state.error !== null && (
                         <StatusMessage tone="error">{flow.state.error}</StatusMessage>
@@ -284,16 +285,27 @@ export function SealDialog({
                         Sealed behind {preset.label.toLowerCase()}.
                     </StatusMessage>
                     <p>Download the seal file now. It is the one artifact you have to keep.</p>
+
+                    {/* Said here, at the moment it becomes true, rather than left for the card
+                        behind this dialog. A replaced gate that never reaches the chain is a gate
+                        the module does not honour — and the one it still honours is the old one. */}
+                    {replacing !== null && (
+                        <Notice tone="caution">
+                            The chain has not changed. It still honours the gate you just replaced,
+                            so until you update it the <strong>old</strong> guardians are the ones
+                            who can recover this account. The card behind this dialog has the button.
+                        </Notice>
+                    )}
                     {/* The full seal treatment lives here rather than on the card, because this is
                         the moment the greyed “Mail me the seal” is worth reading — you have just
                         made the thing, and mailing it to a guardian is the next idea you will have. */}
                     <SealRow vault={vault} sealFile={flow.state.sealFile} />
-                    <pre className="transcript">{flow.state.log.join("\n")}</pre>
+                    <pre className="transcript">{flow.state.logs.seal.join("\n")}</pre>
                     <Explain>
                         <p>
-                            The vault exists; the account is not protected yet. A recovery key that no
-                            chain has registered protects nothing, and registering it is the on-chain
-                            half — the card behind this dialog says which half is missing.
+                            The vault exists; the chain has not been told about it. A recovery key no
+                            chain has registered protects nothing, and registering it is a separate,
+                            on-chain step that costs gas and is paid by the account.
                         </p>
                     </Explain>
                 </div>

@@ -19,7 +19,6 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
     const roles: { label: string; identity: RoleIdentity; routes: string }[] = [
         { label: "relayer", identity: config.roles.relayer, routes: "POST /api/roles/relayer/{initiate,execute,fund}" },
         { label: "pause authority", identity: config.roles.pause, routes: "POST /api/roles/veto/pause" },
-        { label: "abort authority", identity: config.roles.abort, routes: "POST /api/roles/veto/abort" },
         ...config.roles.resume.map((identity, i) => ({
             label: `resume member ${i + 1}`,
             identity,

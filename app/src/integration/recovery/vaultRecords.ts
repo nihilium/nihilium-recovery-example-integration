@@ -16,6 +16,7 @@
  */
 import {
     formatRecordId,
+    type KeyAdapter,
     type ChainContext,
     type KeyAlgorithm,
     type RecordId,
@@ -162,26 +163,38 @@ export class RecoveredKeyMismatchError extends Error {
 }
 
 /**
+ * The recovered key's public half, whichever mode the recovery ran in.
+ *
+ * A capability carries its own public key. `rawKey` hands back private bytes and nothing else, so
+ * the public half has to be derived — and it must be derived with **this chain's** `KeyAdapter`,
+ * because the curve belongs to the chain: deriving an ed25519 point from secp256k1 bytes would not
+ * fail, it would produce a different key that matches nothing.
+ */
+export function recoveredPublicKeyHex(
+    authority: RecoveredAuthority,
+    keyAdapter: KeyAdapter,
+): string {
+    return authority.kind === "capability"
+        ? bytesToHex(authority.capability.publicKey.bytes)
+        : bytesToHex(keyAdapter.publicKeyFor(authority.material).bytes);
+}
+
+/**
  * Run after **every** recovery, on every path. This is not a defensive extra: it is the only check
  * that exists for a wrong epoch, and it necessarily happens after the fact — the ceremony has
  * already run, and the money has already been spent, by the time it can be made.
+ *
+ * It used to refuse `rawKey` outright and tell the caller to do the comparison themselves. That was
+ * a check nobody would make: the mode that hands you bare private bytes is exactly the one where
+ * skipping it is easiest, and a silent wrong epoch produces a key that signs perfectly valid
+ * signatures the account rejects. The adapter is a parameter now, and the check runs either way.
  */
 export function assertRecoveredKeyMatches(
     authority: RecoveredAuthority,
     chain: VaultChainRecord,
+    keyAdapter: KeyAdapter,
 ): void {
-    const actual =
-        authority.kind === "capability"
-            ? bytesToHex(authority.capability.publicKey.bytes)
-            : undefined;
-    if (actual === undefined) {
-        // `rawKey` mode hands back private bytes with no public half attached; a caller using it owns
-        // this check itself, and saying so beats pretending we made it.
-        throw new Error(
-            "assertRecoveredKeyMatches needs a capability. In rawKey mode, derive the public key " +
-                "with the chain's KeyAdapter and compare it yourself — do not skip the comparison.",
-        );
-    }
+    const actual = recoveredPublicKeyHex(authority, keyAdapter);
     if (actual !== chain.recoveryPubKeyHex) {
         throw new RecoveredKeyMismatchError(chain.recoveryPubKeyHex, actual, chain);
     }

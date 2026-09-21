@@ -6,8 +6,11 @@
  * `DerivedAccount`s from the chain registry, which is exactly what a real wallet would supply from
  * its own keystore.
  */
+import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import type { ChainRegistry, DerivedAccount } from "../integration/chains/types.js";
+import { deriveSecp256k1 } from "../integration/keys/derive.js";
 import { seedFromMnemonic } from "../integration/keys/mnemonic.js";
+import { EVM_RECOVERY_TARGET_PATH } from "../integration/keys/paths.js";
 
 export interface WalletSnapshot {
     mnemonic: string;
@@ -16,6 +19,14 @@ export interface WalletSnapshot {
     accounts: Record<string, DerivedAccount[]>;
     /** Chains whose derivation failed, with the reason. A chain that needs an RPC can fail here. */
     failures: Record<string, string>;
+    /**
+     * Where a recovery hands control by default — a second EVM account on the same phrase.
+     *
+     * Standing in for "a key on hardware you still have", which a single-seed demo cannot really
+     * have. What matters is that it is **not** the account being recovered and not the recovered
+     * key: the first is what was lost, and the second comes out of a vault the recovery spends.
+     */
+    recoveryTarget: { address: string; derivationPath: string };
 }
 
 export async function deriveWallet(
@@ -41,5 +52,16 @@ export async function deriveWallet(
         }),
     );
 
-    return { mnemonic, seed, accounts, failures };
+    const targetKey = deriveSecp256k1(seed, EVM_RECOVERY_TARGET_PATH);
+
+    return {
+        mnemonic,
+        seed,
+        accounts,
+        failures,
+        recoveryTarget: {
+            address: toEvmAddress(targetKey.publicKey),
+            derivationPath: EVM_RECOVERY_TARGET_PATH,
+        },
+    };
 }

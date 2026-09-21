@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createAppBindings } from "./demo/bindings.js";
 import { useRecoveryFlow } from "./demo/useRecoveryFlow.js";
+import { useRecoveryChain } from "./demo/useRecoveryChain.js";
+import { useSettlement } from "./demo/useSettlement.js";
 import { deriveWallet, type WalletSnapshot } from "./demo/wallet.js";
 import { DemoBanner } from "./ui/DemoBanner.js";
 import { Explain, ExplainProvider } from "./ui/Explain.js";
@@ -9,6 +11,7 @@ import { WalletCard } from "./ui/WalletCard.js";
 import { WalletSwitcher } from "./ui/WalletSwitcher.js";
 import { RecoverDialog } from "./ui/RecoverDialog.js";
 import { RecoveryCard } from "./ui/RecoveryCard.js";
+import { protectionOf } from "./ui/protection.js";
 import { StatusMessage, TopBar } from "./ui/ds.js";
 
 export function App() {
@@ -52,6 +55,14 @@ function Shell() {
     const [recovering, setRecovering] = useState(false);
     const activeVault = flow.vaultFor(chain.id);
 
+    // The on-chain half. Owned here for the same reason the flow is: the wallet badge and the
+    // register button must never disagree about what the module holds.
+    const settlement = useSettlement(bindings, chain, account, activeVault);
+
+    // The on-chain half of a recovery. Its own hook because it fails on its own: a vault can be open
+    // with nothing ever submitted, and that is a state, not an error.
+    const onchainRecovery = useRecoveryChain(bindings, chain, activeVault);
+
     return (
         <>
             {/* `static`, and outside the shell: `fixed` expects the scroll container `<Page>` gives,
@@ -93,6 +104,7 @@ function Shell() {
                             accounts={wallet?.accounts[chain.id] ?? []}
                             failure={wallet?.failures[chain.id]}
                             vault={activeVault}
+                            settlement={settlement}
                             onRecover={() => setRecovering(true)}
                         />
                     </section>
@@ -101,6 +113,14 @@ function Shell() {
                         flow={flow}
                         methods={bindings.methods}
                         methodError={bindings.methodError}
+                        chainLabel={chain.label}
+                        onchainAttempt={settlement.state.onchain?.attempt}
+                        // No watchtower role exists yet. Passed as a value rather than assumed, so
+                        // the day one is built this starts telling the truth without being hunted.
+                        watching={false}
+                        protection={protectionOf(activeVault, chain.id, settlement.state.onchain)}
+                        protecting={settlement.state.phase === "protecting"}
+                        onProtect={() => void settlement.protect()}
                         account={account}
                     />
                 </main>
@@ -112,6 +132,9 @@ function Shell() {
                     onClose={() => setRecovering(false)}
                     flow={flow}
                     vault={activeVault}
+                    chain={chain}
+                    suggestedTarget={wallet?.recoveryTarget}
+                    onchain={onchainRecovery}
                 />
             )}
         </>

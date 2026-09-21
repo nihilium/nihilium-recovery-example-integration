@@ -41,6 +41,7 @@ import type {
 import {
     assertRecoveredKeyMatches,
     chainContextOf,
+    recoveredPublicKeyHex,
     type VaultChainRecord,
     type VaultRecord,
     type VaultRecordStore,
@@ -150,6 +151,92 @@ export async function sealVault(deps: VaultDeps, params: SealVaultParams): Promi
     return { vault, seal: created.sealBlob };
 }
 
+export interface AddChainParams {
+    method: RecoveryMethod;
+    vault: VaultRecord;
+    chain: ChainModule;
+    account: DerivedAccount;
+    /** Bumped by a completed recovery on *that* chain. Seal against what this chain says now. */
+    epoch?: number;
+    onProgress?(message: string): void;
+}
+
+/**
+ * Put another chain into a vault that already exists.
+ *
+ * **This is free, and the gap between it and `sealVault` is the whole point.** A ceremony is paid,
+ * plural, online and slow; this is one local encryption against a public key the vault already
+ * published, and it contacts nobody. A wallet that made its user buy a ceremony per chain would be
+ * charging them for the SDK's cheapest operation.
+ *
+ * The gate does not change and is not re-run: the same guardians that opened the first chain open
+ * this one, because it is the same vault. What changes is that one more record sits inside it — and
+ * that is also the cost, stated plainly: a recovery opens *every* chain in the vault, so adding one
+ * widens what a single ceremony exposes.
+ *
+ * **To replace:** nothing. **Assumes:** `vault.publicComponent` is the annotated one the last
+ * `addChain()` returned, not the empty one the ceremony produced — this function keeps that true by
+ * writing the new annotation back.
+ */
+export async function addChainToVault(
+    deps: VaultDeps,
+    params: AddChainParams,
+): Promise<VaultRecord> {
+    const existing = params.vault.chains.find((row) => row.chainId === params.chain.id);
+    if (existing !== undefined) {
+        throw new Error(
+            `${params.chain.label} is already in vault ${params.vault.vaultId}. Adding it twice ` +
+                "would put a second root secret for the same chain in one vault, and a recovery " +
+                "would have no way to say which is current.",
+        );
+    }
+
+    // The curve belongs to the chain, and the adapter to the gate. Neither is the "app's" — a vault
+    // holding an ed25519 chain beside a secp256k1 one is the normal case, not a special one.
+    const sdk = new RecoverySDK({
+        key: params.chain.keyAdapter,
+        condition: params.method.appendAdapter(params.vault.gate),
+        sealStore: deps.sealStore,
+        dataStore: deps.dataStore,
+    });
+
+    const context = chainContextOf(params.vault, {
+        namespace: params.chain.namespace,
+        tier: params.chain.tier,
+        accountId: params.account.accountId,
+        epoch: params.epoch ?? 0,
+    });
+
+    const startedAt = performance.now();
+    const added = await sdk.addChain({ publicComponent: params.vault.publicComponent, chain: context });
+    const writeMs = Math.round(performance.now() - startedAt);
+    params.onProgress?.(`addChain   ${params.chain.id} in ${writeMs} ms · no ceremony, no payment`);
+
+    const chainRecord: VaultChainRecord = {
+        chainId: params.chain.id,
+        namespace: context.namespace,
+        tier: context.tier,
+        accountId: context.accountId,
+        epoch: context.epoch,
+        algorithm: params.chain.keyAdapter.algorithm,
+        recoveryPubKeyHex: bytesToHex(added.recoveryPubKey.bytes),
+        entryId: added.entry.entryId,
+        addedAt: Date.now(),
+        writeMs,
+        // Sealed is not protected — on this chain as on the first.
+        settlement: null,
+    };
+
+    const updated: VaultRecord = {
+        ...params.vault,
+        // The annotation grows with each chain, so the next `addChain()` builds on this one.
+        publicComponent: added.publicComponent,
+        chains: [...params.vault.chains, chainRecord],
+    };
+    await deps.vaults.put(updated);
+    return updated;
+}
+
 /**
  * Forget a vault: its seal, then its ledger row.
  *
@@ -211,6 +298,8 @@ export interface RecoverVaultParams {
 
 export interface RecoverVaultResult {
     authority: RecoveredAuthority;
+    /** Derived once, here, so no caller re-derives it with the wrong curve. */
+    publicKeyHex: string;
     spent: SpentSeal;
     contacted: readonly number[];
     /** Guardians this recovery never asked. Rendered as prominently as the ones it did. */
@@ -240,13 +329,23 @@ export async function recoverVault(
     const outcome = await sdk.recover({
         proof: recovery.proof,
         chain: context,
+        // `rawKey`, the SDK's first-class opt-out (§13), and a deliberate one here.
+        //
+        // The demo has to *show* what was recovered — a wallet that says "recovered" and shows
+        // nothing is asking to be believed — and it has to sign the on-chain intent with it. A
+        // capability gives a scoped, zeroizing signer and no way to display the key; raw bytes give
+        // both, at the cost of the scope. In a demo whose mnemonic is printed on the front page that
+        // is the right trade, and it makes "the key is assembled" a thing you can look at rather
+        // than a claim. A real wallet should use the capability and let it zeroize.
+        options: { mode: "rawKey" },
         ...(params.seal ? { seal: params.seal } : {}),
         ...(params.entries ? { entries: params.entries } : {}),
         ...(params.onProgress ? { onProgress: params.onProgress } : {}),
     });
 
-    // The only check that catches a wrong epoch, and necessarily after the ceremony has run.
-    assertRecoveredKeyMatches(outcome.authority, params.chainRecord);
+    // The only check that catches a wrong epoch, and necessarily after the ceremony has run. It
+    // needs the chain's adapter in `rawKey` mode, because raw bytes carry no public half.
+    assertRecoveredKeyMatches(outcome.authority, params.chainRecord, params.chain.keyAdapter);
 
     // A spent vault is never silently reused: every chain's root secret is now exposed to whoever
     // ran this, and the answer is a new ceremony, never a new epoch on the old one.
@@ -257,6 +356,7 @@ export async function recoverVault(
 
     return {
         authority: outcome.authority,
+        publicKeyHex: recoveredPublicKeyHex(outcome.authority, params.chain.keyAdapter),
         spent: outcome.spent,
         contacted: recovery.contacted,
         untouched: recovery.untouched,

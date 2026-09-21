@@ -10,7 +10,7 @@
 import { checkSealPlacement } from "@nihilium/recovery-core";
 import type { GateRecord } from "../integration/conditions/types.js";
 import type { SealFile } from "../integration/recovery/sealFile.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import { displayRecordId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
 import { Button } from "./ds.js";
 import { downloadSeal } from "./downloadSeal.js";
 import { Explain } from "./Explain.js";
@@ -52,7 +52,7 @@ export function SealRow({ vault, sealFile }: { vault: VaultRecord; sealFile: Sea
                 </span>
 
                 <span className="muted">Record id</span>
-                <AddressChip value={vault.recordId} display={vault.recordId} />
+                <AddressChip value={vault.recordId} display={displayRecordId(vault)} />
             </div>
 
             {sealFile === null && (

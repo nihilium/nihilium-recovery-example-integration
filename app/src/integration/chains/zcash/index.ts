@@ -37,7 +37,7 @@ export function createZcashTestnetChain(): ChainModule {
     return {
         id: "zcash-testnet",
         label: "Zcash · testnet",
-        icon: "LockClosed",
+        icon: "zcash",
         // Pinned, and note this one is not a registered CAIP-2 namespace at all. Whatever string
         // sits here is an HKDF input forever; picking it is a decision, not a formatting choice.
         namespace: "zcash:testnet",
@@ -87,5 +87,7 @@ export function createZcashTestnetChain(): ChainModule {
         },
 
         settlement: null,
+        // No transfer wired: this repo writes Zcash's key adapter, not a node client.
+        send: null,
     };
 }

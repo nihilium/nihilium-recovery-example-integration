@@ -98,6 +98,25 @@ export async function buildQuorumCondition(
     return { adapter, condition, setId: setIdOf(condition) };
 }
 
+/**
+ * The quorum for a gate that already exists, with no ceremony run.
+ *
+ * Constructing a `QuorumConditionAdapter` costs nothing — the money is spent in `sealVault`, which
+ * this never calls. That is what makes `addChain()` free: encrypting another chain's record needs
+ * only the vault's published public component, so a second or tenth chain joins an existing gate
+ * without contacting a single guardian.
+ */
+export function buildQuorumAppendAdapter(
+    options: QuorumPlumbingOptions,
+    subjects: readonly StoredSubject[],
+): QuorumConditionAdapter {
+    return new QuorumConditionAdapter({
+        members: subjects.map((subject) =>
+            options.kindFor(subject).adapterFor(asSubject(subject), subject.index),
+        ),
+    });
+}
+
 export interface BuiltQuorumProof {
     adapter: QuorumConditionAdapter;
     proof: ConditionProof;

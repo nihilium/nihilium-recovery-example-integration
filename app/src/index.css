@@ -418,9 +418,9 @@ body {
   font-size: var(--nih-text-sm);
 }
 
-/* Health deliberately has no success styling: the resting state is "nothing is watching", and a
- * green badge over that is the misreading the whole rule exists to prevent. */
-.health {
+/* The recovery stage. No success styling below `executed`, deliberately: `vault-open` is the state
+ * a user is most likely to read as "done", and it is the state where the account has not moved. */
+.stage {
   display: inline-flex;
   align-items: center;
   gap: var(--nih-space-2);
@@ -434,7 +434,7 @@ body {
   cursor: help;
 }
 
-.health__dot {
+.stage__dot {
   width: 0.5rem;
   height: 0.5rem;
   flex: none;
@@ -442,17 +442,94 @@ body {
   background: var(--nih-color-muted);
 }
 
-.health--unwatched .health__dot {
+.stage--none .stage__dot,
+.stage--unwatched .stage__dot {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--nih-color-muted);
 }
 
-.health--in-progress .health__dot {
+.stage--opening .stage__dot,
+.stage--initiated .stage__dot {
   background: var(--nih-color-accent);
 }
 
-.health--spent .health__dot {
+/* Half-filled: something happened, and it is not finished. */
+.stage--vault-open .stage__dot,
+.stage--executable .stage__dot {
+  background: var(--nih-color-text);
+  box-shadow: inset -3px 0 0 0 var(--nih-color-field);
+}
+
+.stage--paused .stage__dot {
+  background: var(--nih-color-muted-soft);
+  box-shadow: inset 0 0 0 1px var(--nih-color-text);
+}
+
+.stage--executed .stage__dot,
+.stage--watched .stage__dot {
+  background: var(--nih-color-success);
+}
+
+.stage--aborted .stage__dot {
   background: var(--nih-color-error);
+}
+
+/* ---------- key rows ---------- */
+
+/* A label/value grid, because the recovered key is data and reads as data. */
+.rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--nih-space-2) var(--nih-space-4);
+  align-items: baseline;
+  font-size: var(--nih-text-sm);
+}
+
+.rows dt {
+  color: var(--nih-color-muted);
+}
+
+.rows dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.rows dd.rows__prose {
+  font-family: inherit;
+}
+
+/* ---------- guardian table ---------- */
+
+.members-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--nih-text-sm);
+}
+
+.members-table th {
+  text-align: left;
+  font-weight: var(--nih-weight-medium);
+  color: var(--nih-color-muted);
+  padding-bottom: var(--nih-space-2);
+  border-bottom: 1px solid var(--nih-color-border-subtle);
+}
+
+.members-table td {
+  padding: var(--nih-space-2) var(--nih-space-3) var(--nih-space-2) 0;
+  border-bottom: 1px solid var(--nih-color-border-subtle);
+  vertical-align: baseline;
+}
+
+.members-table td:last-child,
+.members-table th:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A guardian nobody asked is not a guardian who failed. */
+.members-table tr[data-contacted="false"] {
+  color: var(--nih-color-muted);
 }
 
 .protection {
@@ -493,6 +570,13 @@ body {
 .protection--protected .protection__dot,
 .protection__dot--protected {
   background: var(--nih-color-success);
+}
+
+/* Stale is not a lesser "protected": the account is guarded by a key you no longer hold. */
+.protection--stale .protection__dot,
+.protection__dot--stale {
+  background: var(--nih-color-error);
+  box-shadow: inset -3px 0 0 0 var(--nih-color-field);
 }
 
 .protection--spent .protection__dot,

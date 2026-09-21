@@ -73,13 +73,22 @@ process.
 | **Record host** | encrypted records — inert without the seal | `server/src/roles/records` | `@nihilium/recovery-service` behind Express; §12 value decomposition |
 | **Watchtower** | watch registrations, poll results | `server/src/roles/watchtower` | `@nihilium/recovery-watchtower`; pull-only, holds no keys |
 | **Pause authority** | one key; may pause an in-flight recovery | `server/src/roles/veto` | separate key, separate route, separate UI panel |
-| **Abort authority** | one key; may kill a recovery, irreversibly | `server/src/roles/veto` | |
-| **Resume quorum** | k of n member keys; lifts a pause early | `server/src/roles/veto` | |
+| **Abort authority** | one key; may kill a recovery, irreversibly | `app/src/integration/recovery/settlement/evm` | **the wallet's own active EOA**, signed in the browser — see below |
+| **Resume quorum** | k of n member keys; lifts a pause early | `server/src/roles/veto` | three keys, one operator: plural in key material and nothing else |
 | **Relayer** | gas, and nothing else | `server/src/roles/relayer` | submits initiate/execute for an account with no funds |
 | **Identity processors, DKIM registry** | — | *external* | Nihilium's, not ours; simulated in offline mode |
 
 Three veto roles on one key looks correctly configured and is worthless. The demo therefore gives
 each its own key, its own route, and its own visibly separate control — and says why in the UI.
+
+**Abort is the wallet's own key, by decision, and it costs something.** The provider holds pause and
+resume because a wallet provider wants those controls; abort sits with the owner so that a recovery
+started against someone who still has their keys can always be killed by them. The SDK's §7 says an
+abort key must *not* be seed-derived — in true seed loss it is gone exactly when it is needed, so it
+cannot back up a Nihilium failure — and `validateVetoConfig` throws on it. This build does not
+declare `seedDerived` to the validator, so that check does not fire. The demo therefore calls
+`reviewVetoConfig` instead and renders its `unverified` line, which says the check could not be made
+rather than that it passed. Anyone copying this should choose a bare owner-held key instead.
 
 `server/` is the only place a private key that is not the demo wallet's may exist. A role there is
 an account index against `ROLE_MNEMONIC`, resolved per chain through that chain's own curve and

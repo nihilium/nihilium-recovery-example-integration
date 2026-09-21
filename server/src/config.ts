@@ -66,7 +66,7 @@ export interface Config {
      * what a real deployment does — see `roleIdentity.ts`.
      */
     roleMnemonic: string;
-    roles: { relayer: RoleIdentity; pause: RoleIdentity; abort: RoleIdentity; resume: RoleIdentity[] };
+    roles: { relayer: RoleIdentity; pause: RoleIdentity; resume: RoleIdentity[] };
     resumeThreshold: number;
     /** Seconds. Demo values: long enough to see, short enough to sit through. */
     timelockSeconds: number;
@@ -91,7 +91,6 @@ const roleOptions = {
     supplied: {
         relayer: process.env["RELAYER_PRIVATE_KEY"],
         pause: process.env["PAUSE_AUTHORITY_PRIVATE_KEY"],
-        abort: process.env["ABORT_AUTHORITY_PRIVATE_KEY"],
         ...Object.fromEntries(resumeKeys.map((key, i) => [`resume-${i + 1}`, key])),
     },
 };
@@ -107,7 +106,9 @@ export const config: Config = {
         // The index is the role's identity across every chain, so it is fixed here and nowhere else.
         relayer: createRoleIdentity("relayer", 0, roleOptions),
         pause: createRoleIdentity("pause", 1, roleOptions),
-        abort: createRoleIdentity("abort", 2, roleOptions),
+        // No abort role. In this demo the abort authority is the wallet's own active EOA, signed in
+        // the browser, so an owner who still holds their keys can kill a recovery started against
+        // them. Index 2 stays unused rather than being recycled: role indices are identities.
         resume: Array.from({ length: memberCount }, (_, i) =>
             createRoleIdentity(`resume-${i + 1}`, 10 + i, roleOptions),
         ),

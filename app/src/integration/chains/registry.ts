@@ -14,13 +14,15 @@ import type { ChainModule, ChainRegistry } from "./types.js";
 import { createZcashTestnetChain } from "./zcash/index.js";
 
 export interface ChainRegistryOptions {
-    /** The only external dependency any chain here has. Passed in, never read from the environment. */
+    /** External dependencies, passed in and never read from the environment. */
     evmRpcUrl: string;
+    /** Where UserOps go. Sending value and installing the recovery module both need one. */
+    evmBundlerUrl: string;
 }
 
 export function createChainRegistry(options: ChainRegistryOptions): ChainRegistry {
     const chains: ChainModule[] = [
-        createEvmSepoliaChain({ rpcUrl: options.evmRpcUrl }),
+        createEvmSepoliaChain({ rpcUrl: options.evmRpcUrl, bundlerUrl: options.evmBundlerUrl }),
         createSolanaDevnetChain(),
         createZcashTestnetChain(),
     ];

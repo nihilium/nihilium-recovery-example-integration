@@ -13,7 +13,12 @@
  */
 import { parseQuorumVault } from "@nihilium/recovery-condition-quorum";
 import type { SealBlob } from "@nihilium/recovery-core";
-import { buildQuorumCondition, buildQuorumProof, toStoredSubjects } from "./quorum.js";
+import {
+    buildQuorumAppendAdapter,
+    buildQuorumCondition,
+    buildQuorumProof,
+    toStoredSubjects,
+} from "./quorum.js";
 import type {
     CeremonyMode,
     GateDescription,
@@ -224,6 +229,11 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
                     mode: options.mode,
                 },
             };
+        },
+
+        appendAdapter(gate: GateRecord) {
+            // No ceremony, no network, no payment — see `buildQuorumAppendAdapter`.
+            return buildQuorumAppendAdapter(plumbing, gate.subjects);
         },
 
         async createRecovery(params: MethodRecoveryParams): Promise<MethodRecovery> {

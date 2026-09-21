@@ -53,8 +53,9 @@ const TEACHES: readonly { file: string; phrase: string }[] = [
     { file: "src/ui/SealRow.tsx", phrase: "two-domain rule" },
     { file: "src/ui/SealRow.tsx", phrase: "disabled for two reasons" },
     { file: "src/ui/RecoveryCard.tsx", phrase: "A new gate on this account does not undo" },
-    { file: "src/ui/RecoveryCard.tsx", phrase: "Nothing is monitoring this vault yet" },
-    { file: "src/ui/RecoverDialog.tsx", phrase: "their share is never requested" },
+    { file: "src/ui/RecoveryCard.tsx", phrase: "The two badges answer two questions" },
+    { file: "src/ui/RecoverDialog.tsx", phrase: "not a vote, an absence" },
+    { file: "src/ui/RecoverDialog.tsx", phrase: "that key signs the" },
     { file: "src/ui/SealDialog.tsx", phrase: "live zkEmail DKIM registry" },
 ];
 
@@ -72,9 +73,14 @@ const REPORTS: readonly { file: string; phrase: string }[] = [
     { file: "src/ui/RecoveryCard.tsx", phrase: "vault.spent.reason" },
     // Why a method is refused, on the method. A greyed option with no reason is a dead end.
     { file: "src/ui/SealDialog.tsx", phrase: "offer.unavailable" },
-    // The watchtower's answer, which at rest is "nothing is watching" and must never be styled as
-    // reassurance — see `recoveryHealth.ts`.
-    { file: "src/ui/RecoveryCard.tsx", phrase: "<HealthBadge state={health} />" },
+    // What stage this recovery is at, off-chain and on. Hiding it would leave the card unable to
+    // say that a vault was opened and the account never moved.
+    { file: "src/ui/RecoveryCard.tsx", phrase: "<StageBadge stage={stage} />" },
+    // The watchtower's answer, whose resting state is "nothing is watching". Never styled as
+    // reassurance, and never optional — see `recoveryHealth.ts`.
+    { file: "src/ui/RecoveryCard.tsx", phrase: "<WatchBadge watching={watching} />" },
+    // The one line that stops "the vault opened" reading as "the account is back".
+    { file: "src/ui/RecoverDialog.tsx", phrase: "changed hands" },
     { file: "src/ui/DemoBanner.tsx", phrase: "The live ceremony is not configured" },
     // Per-guardian domain verdicts: a blocking answer that only shows in Explain mode is a seal
     // button that refuses to work for no visible reason.

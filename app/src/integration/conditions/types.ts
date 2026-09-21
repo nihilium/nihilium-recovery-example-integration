@@ -295,6 +295,16 @@ export interface RecoveryMethod {
 
     createSetup(params: MethodSetupParams): Promise<MethodSetup>;
     createRecovery(params: MethodRecoveryParams): Promise<MethodRecovery>;
+
+    /**
+     * An adapter for a gate that already exists, built without running anything.
+     *
+     * This is what makes `addChain()` free. Putting a second chain into a vault needs only the
+     * vault's published public component, so the adapter has to exist but its ceremony must not run
+     * again — a method that re-sealed here would charge for every chain a user adds, which is the
+     * exact asymmetry this repo is meant to demonstrate.
+     */
+    appendAdapter(gate: GateRecord): ConditionAdapter;
 }
 
 /**
