@@ -19,18 +19,18 @@
  * Demo-shaped, so it lives outside `roles/`: a role receives its signer as a parameter and never
  * learns whether it came from a phrase or an envelope (CLAUDE.md -> The copy line).
  */
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { slip10Ed25519 } from "@nihilium-demo/keys";
 import type { Authority, PublicKey } from "@nihilium/recovery-core";
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
+import { SOLANA_NAMESPACE, toSolanaAddress } from "@nihilium/recovery-key-solana";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { bytesToHex, type Hex } from "viem";
 
-/** The Hardhat/Anvil default, matching `app/src/demo/mnemonic.ts`. Public, on purpose. */
-export const DEMO_ROLE_MNEMONIC = "test test test test test test test test test test test junk";
-
-export type RoleName = "relayer" | "pause" | "abort" | `resume-${number}`;
+export type RoleName = "relayer" | "pause" | "abort" | "attester" | `resume-${number}`;
 
 export type Curve = "secp256k1" | "ed25519";
 
@@ -55,10 +55,19 @@ export const ROLE_CHAINS: Record<string, RoleChainScheme> = {
         path: (index) => `m/44'/60'/1'/0/${index}`,
         addressOf: toEvmAddress,
     },
-    // Solana and Zcash have no settlement program for a role to act on yet. When one lands, its
-    // entry goes here — and an ed25519 entry needs `deriveOnCurve` below to grow a SLIP-0010 branch,
-    // which means promoting `app/src/integration/keys/` to a workspace package both halves import
-    // rather than copying it. That move is the point at which it earns its keep, not before.
+    [SOLANA_NAMESPACE.devnet]: {
+        // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
+        // name — and this value is a KDF input, so a wrong one is not a bug that gets fixed later.
+        namespace: SOLANA_NAMESPACE.devnet,
+        curve: "ed25519",
+        // Fully hardened, because SLIP-0010 ed25519 defines nothing else — `parseHardenedPath`
+        // throws on an unhardened segment rather than inventing an answer. The `1'` account branch
+        // is the same trick the EVM path uses: a role key can never collide with an account the
+        // demo wallet is showing.
+        path: (index) => `m/44'/501'/1'/${index}'`,
+        addressOf: toSolanaAddress,
+    },
+    // Zcash has no settlement program for a role to act on. When one lands, its entry goes here.
 };
 
 export interface RoleKeyOnChain {
@@ -133,12 +142,22 @@ function normalizeSupplied(name: RoleName, value: string | undefined): Hex | und
  * A supplied key is 32 bytes and says nothing about which curve it belongs to, so the check is
  * whether this chain's curve can use it at all. Silently using secp256k1 bytes as an ed25519 seed
  * produces a perfectly valid key for an account nobody named.
+ *
+ * **ed25519 is refused rather than accepted, deliberately.** `supplied` is keyed by role name
+ * alone, so there is nowhere to put a per-chain override — one `RELAYER_PRIVATE_KEY` cannot mean
+ * two curves. And a Solana secret arrives as a base58 keypair or 64 bytes, while SLIP-0010 yields a
+ * 32-byte seed, so "it is 32 hex bytes" does not identify which one was meant. Guessing is exactly
+ * the failure above. Supporting it means making `supplied` per-(role, chain) and naming the
+ * encoding; until then the phrase derives Solana role keys.
  */
 function assertSuppliedKeyUsable(name: RoleName, key: Hex, scheme: RoleChainScheme): Hex {
     if (scheme.curve !== "secp256k1") {
         throw new Error(
             `${name} was given a raw private key, but ${scheme.namespace} uses ${scheme.curve}. ` +
-                "Supply a key for that curve under its own variable, or let the role phrase derive it.",
+                "This server has one key slot per role, not one per role and chain, so it cannot " +
+                "tell which chain that key was for — and a 32-byte value is a valid seed on either " +
+                "curve, so guessing yields a key for an account nobody named. Clear the override " +
+                "and let ROLE_MNEMONIC derive this role, or add a per-chain slot first.",
         );
     }
     return key;
@@ -157,23 +176,22 @@ function deriveOnCurve(mnemonic: string, scheme: RoleChainScheme, accountIndex: 
             return bytesToHex(node.privateKey);
         }
         case "ed25519":
-            // Deliberately a throw rather than a silent BIP-32 derivation: BIP-32 is secp256k1-only,
-            // and ed25519 needs SLIP-0010. Wiring it means sharing `app/src/integration/keys/`
-            // between the two halves rather than copying it here.
-            throw new Error(
-                `${scheme.namespace} needs ed25519 (SLIP-0010) role keys, which this server cannot ` +
-                    "derive yet. Promote app/src/integration/keys/ to a workspace package and import " +
-                    "slip10Ed25519 here.",
-            );
+            // Not BIP-32: that scheme adds scalars on secp256k1, and ed25519 keys are not scalars
+            // you may add. SLIP-0010 is the one that covers this curve, and it comes from the
+            // shared package so the server and the wallet cannot disagree about what a path means.
+            return bytesToHex(slip10Ed25519(seed, scheme.path(accountIndex)));
     }
 }
 
 function publicKeyFor(privateKey: Hex, curve: Curve): PublicKey {
-    if (curve !== "secp256k1") {
-        throw new Error(`No public-key derivation wired for ${curve}; see deriveOnCurve.`);
+    const seed = hexToBytes32(privateKey);
+    switch (curve) {
+        case "secp256k1":
+            // Compressed, 33 bytes — what `PublicKey` documents for this algorithm.
+            return { algorithm: "secp256k1", bytes: secp256k1.getPublicKey(seed, true) };
+        case "ed25519":
+            return { algorithm: "ed25519", bytes: ed25519.getPublicKey(seed) };
     }
-    const bytes = secp256k1.getPublicKey(hexToBytes32(privateKey), true);
-    return { algorithm: "secp256k1", bytes };
 }
 
 function hexToBytes32(hex: Hex): Uint8Array {

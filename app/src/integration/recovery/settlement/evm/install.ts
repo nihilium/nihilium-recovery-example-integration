@@ -15,14 +15,19 @@
  * all, so both calls ride in one operation. The epoch deliberately survives an uninstall, being
  * replay-protection state, so intents signed for the old key stay dead afterwards.
  *
+ * A rotation therefore begins with a **read**: Safe7579's uninstall needs the executor list's
+ * predecessor pointer, and guessing it reverts the whole operation after paying for it. See
+ * `executorPrev` in `erc7579.ts`.
+ *
  * **To replace:** the account provider. Whether the smart account comes from permissionless,
- * ZeroDev or a factory of your own changes nothing below `encodeCalls`.
- * **Assumes:** a Kernel v3 account and the envelope in `kernel.ts`; a funded account (the UserOp is
- * paid by it, and on first use also deploys it); and a bundler that accepts it.
+ * Rhinestone or a factory of your own changes nothing below `encodeCalls`.
+ * **Assumes:** a Safe carrying the Safe7579 adapter and the encodings in `erc7579.ts`; a funded
+ * account (the UserOp is paid by it, and on first use also deploys it); and a bundler that accepts
+ * it.
  */
 import type { Address, Hex } from "viem";
-import { createKernelClient } from "../../../chains/kernelClient.js";
-import { installModuleCalldata, uninstallModuleCalldata } from "./kernel.js";
+import { createSafeClient } from "../../../chains/safeAccount.js";
+import { executorPrev, installModuleCalldata, uninstallModuleCalldata } from "./erc7579.js";
 import type { SolidityVetoConfig } from "./vetoConfig.js";
 
 export interface InstallDeps {
@@ -31,6 +36,8 @@ export interface InstallDeps {
     /** The wallet's own key. Demo-only export; a real app holds a signer, not bytes. */
     ownerPrivateKeyHex: string;
     moduleAddress: Address;
+    /** Must match what `deriveAccounts` used, or this addresses a different account entirely. */
+    attester: Address;
 }
 
 export interface InstallParams {
@@ -57,7 +64,7 @@ export async function protectAccount(
     deps: InstallDeps,
     params: InstallParams,
 ): Promise<InstallResult> {
-    const { client, account } = await createKernelClient(deps);
+    const { client, account, publicClient } = await createSafeClient(deps);
     const target = account.address as Address;
 
     const install = {
@@ -65,10 +72,21 @@ export async function protectAccount(
         value: 0n,
         data: installModuleCalldata(deps.moduleAddress, params.recoveryOwner, params.veto),
     };
-    const calls =
-        params.replacing === true
-            ? [{ to: target, value: 0n, data: uninstallModuleCalldata(deps.moduleAddress) }, install]
-            : [install];
+
+    let calls = [install];
+    if (params.replacing === true) {
+        // Read before encoding, and let it throw: a wrong `prev` is a revert inside the account,
+        // which costs the gas and rotates nothing.
+        const prev = await executorPrev(publicClient, target, deps.moduleAddress);
+        calls = [
+            {
+                to: target,
+                value: 0n,
+                data: uninstallModuleCalldata(deps.moduleAddress, prev),
+            },
+            install,
+        ];
+    }
 
     params.onProgress?.(
         params.replacing === true

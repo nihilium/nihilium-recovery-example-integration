@@ -59,6 +59,16 @@ export interface ChainModule {
 
     formatAddress(address: string, style?: "full" | "short"): string;
 
+    /**
+     * Whether this chain would accept `value` as a destination.
+     *
+     * On the chain module because only it knows: an EVM regex rejects every base58 address, and a
+     * form that hard-codes one is a form that silently cannot send on any other chain. That is
+     * exactly what happened — `SendDialog` tested `/^0x[0-9a-fA-F]{40}$/` and the Send button never
+     * enabled on Solana.
+     */
+    isValidAddress(value: string): boolean;
+
     /** `null` where there is no explorer — a simulated chain returns null and the UI renders text. */
     explorerUrl(ref: ExplorerRef): string | null;
 
@@ -125,7 +135,13 @@ export interface DerivedAccount {
      * recovery keys.
      */
     accountId: string;
-    /** What the user sees. Differs from `accountId` where an EOA fronts a smart account. */
+    /**
+     * What the user sees and sends to. Differs from `accountId` where the two are not one account.
+     *
+     * On EVM they are the same — the smart account is both. On Solana `accountId` is the vault the
+     * program acts on and this is the account holding its lamports; nothing can move value out of
+     * the former, so it is never the address offered for copying.
+     */
     address: string;
     label: string;
     derivationPath: string;

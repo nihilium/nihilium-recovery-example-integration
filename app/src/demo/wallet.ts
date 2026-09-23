@@ -8,7 +8,7 @@
  */
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import type { ChainRegistry, DerivedAccount } from "../integration/chains/types.js";
-import { deriveSecp256k1 } from "../integration/keys/derive.js";
+import { deriveSecp256k1 } from "@nihilium-demo/keys";
 import { seedFromMnemonic } from "../integration/keys/mnemonic.js";
 import { EVM_RECOVERY_TARGET_PATH } from "../integration/keys/paths.js";
 
@@ -26,7 +26,18 @@ export interface WalletSnapshot {
      * have. What matters is that it is **not** the account being recovered and not the recovered
      * key: the first is what was lost, and the second comes out of a vault the recovery spends.
      */
-    recoveryTarget: { address: string; derivationPath: string };
+    recoveryTarget: {
+        address: string;
+        derivationPath: string;
+        /**
+         * Demo-only, and the reason this type lives under `demo/`.
+         *
+         * Once a recovery executes, this is the key the installed validator answers to — so proving
+         * the account changed hands means signing a UserOp with it. A real wallet holds this on the
+         * hardware it stands in for and never exports bytes.
+         */
+        exportPrivateKeyHex_DEMO_ONLY: () => string;
+    };
 }
 
 export async function deriveWallet(
@@ -62,6 +73,8 @@ export async function deriveWallet(
         recoveryTarget: {
             address: toEvmAddress(targetKey.publicKey),
             derivationPath: EVM_RECOVERY_TARGET_PATH,
+            exportPrivateKeyHex_DEMO_ONLY: () =>
+                `0x${Array.from(targetKey.privateKey, (b) => b.toString(16).padStart(2, "0")).join("")}`,
         },
     };
 }

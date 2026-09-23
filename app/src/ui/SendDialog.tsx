@@ -17,6 +17,7 @@ import {
 import type { Balance, ChainModule, DerivedAccount } from "../integration/chains/types.js";
 import { Button, StatusMessage, TextInput, TextLink } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
+import { Transcript } from "./Transcript.js";
 import { Explain } from "./Explain.js";
 
 export function SendDialog({
@@ -47,8 +48,10 @@ export function SendDialog({
     const parsed = parseAmount(amount, decimals);
 
     const tooMuch = parsed !== null && parsed > sendable;
-    const valid =
-        /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && parsed !== null && parsed > 0n && !tooMuch;
+    // The chain's own answer, never a pattern here. A shared `/^0x…{40}$/` meant the Send button
+    // could not enable on any chain but EVM — see `ChainModule.isValidAddress`.
+    const destinationOk = chain.isValidAddress(to);
+    const valid = destinationOk && parsed !== null && parsed > 0n && !tooMuch;
 
     async function submit(): Promise<void> {
         setPhase("sending");
@@ -97,11 +100,14 @@ export function SendDialog({
                         <TextInput
                             value={to}
                             ariaLabel="Recipient address"
-                            placeholder="0x…"
+                            placeholder={chain.id === "evm-sepolia" ? "0x…" : "address"}
                             onChange={(event) => setTo(event.target.value)}
                             disabled={phase !== "idle"}
                         />
                     </label>
+                    {to.trim() !== "" && !destinationOk && (
+                        <span className="muted">Not a {chain.label} address.</span>
+                    )}
                 </div>
 
                 <div className="field">
@@ -137,7 +143,7 @@ export function SendDialog({
                     </StatusMessage>
                 )}
 
-                {log.length > 0 && <pre className="transcript">{log.join("\n")}</pre>}
+                <Transcript lines={log} running={phase === "sending"} label="Sending" />
 
                 {hash !== null && (
                     <StatusMessage tone="success">

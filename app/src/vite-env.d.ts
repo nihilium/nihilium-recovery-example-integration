@@ -8,8 +8,8 @@ interface ImportMetaEnv {
     readonly VITE_SERVER_URL?: string;
     readonly VITE_SEPOLIA_RPC_URL?: string;
     readonly VITE_BUNDLER_URL?: string;
+    readonly VITE_MODULE_ATTESTER?: string;
     /** Overrides the plaintext demo mnemonic in `src/demo/mnemonic.ts`. */
-    readonly VITE_DEMO_MNEMONIC?: string;
     readonly VITE_RECORD_APPEND_SECRET?: string;
     readonly VITE_WATCH_REGISTER_SECRET?: string;
     /** Required: the ceremony is paid, and there is no free mode. Ships to the browser on purpose. */

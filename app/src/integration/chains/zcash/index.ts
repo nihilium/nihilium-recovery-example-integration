@@ -22,10 +22,10 @@
  * chain, which is why `settlement` is null rather than a stub.
  */
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { deriveSecp256k1 } from "../../keys/derive.js";
+import { deriveSecp256k1 } from "@nihilium-demo/keys";
 import { ZCASH_PATHS } from "../../keys/paths.js";
 import type { Balance, ChainModule, DerivedAccount } from "../types.js";
-import { toZcashTransparentAddress } from "./address.js";
+import { decodeZcashTransparentAddress, toZcashTransparentAddress } from "./address.js";
 import { ZcashTransparentKeyAdapter } from "./keyAdapter.js";
 
 /** Zatoshis. Split across the three addresses, because that is what a UTXO wallet looks like. */
@@ -67,6 +67,17 @@ export function createZcashTestnetChain(): ChainModule {
                     },
                 } satisfies DerivedAccount;
             });
+        },
+
+        isValidAddress(value) {
+            // The chain's own decoder, which checks the version bytes and the checksum — a length
+            // test would accept a mainnet address on testnet and a typo that still base58s.
+            try {
+                decodeZcashTransparentAddress(value.trim());
+                return true;
+            } catch {
+                return false;
+            }
         },
 
         formatAddress(address, style = "short") {

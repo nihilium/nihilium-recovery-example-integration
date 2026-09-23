@@ -20,12 +20,23 @@ import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Explain } from "./Explain.js";
 import { Notice } from "./Notice.js";
+import { Transcript } from "./Transcript.js";
 import { RecoveredKey } from "./RecoveredKey.js";
 
 export interface RecoveryTarget {
     kind: "derived" | "pasted";
     address: string;
 }
+
+/**
+ * 0.0002 ETH, sent back to the target itself.
+ *
+ * Small enough that a demo account can afford the gesture, real enough that it is a transfer rather
+ * than a no-op: a zero-value UserOp would prove the signature was accepted and nothing about
+ * spending.
+ */
+const PROOF_AMOUNT_WEI = 200_000_000_000_000n;
+const PROOF_AMOUNT_LABEL = "0.0002 ETH";
 
 export function RecoverDialog({
     open,
@@ -42,7 +53,13 @@ export function RecoverDialog({
     flow: RecoveryFlow;
     vault: VaultRecord;
     chain: ChainModule;
-    suggestedTarget: { address: string; derivationPath: string } | undefined;
+    suggestedTarget:
+        | {
+              address: string;
+              derivationPath: string;
+              exportPrivateKeyHex_DEMO_ONLY: () => string;
+          }
+        | undefined;
     /** The on-chain half. Separate hook, separate failures — see `useRecoveryChain`. */
     onchain: RecoveryChain;
 }) {
@@ -318,10 +335,70 @@ export function RecoverDialog({
                                           ? `Execute on ${chain.label}`
                                           : "Timelock running…"}
                                 </Button>
-                            ) : onchain.state.phase === "done" ? (
-                                <StatusMessage tone="success">
-                                    Control moved to {target}.
-                                </StatusMessage>
+                            ) : onchain.state.phase === "done" ||
+                              onchain.state.phase === "proving" ||
+                              onchain.state.phase === "proved" ? (
+                                <div className="stack">
+                                    <StatusMessage tone="success">
+                                        Control moved to {target}.
+                                    </StatusMessage>
+
+                                    {/* A fact about this run, so it stays visible: the recovery
+                                        added a way in, it did not close the old one. */}
+                                    <Notice tone="caution">
+                                        The lost key is still an owner of this Safe and can still act
+                                        through <code>execTransaction</code>. Recovery installed a
+                                        second path; it removed nothing.
+                                    </Notice>
+
+                                    {onchain.state.phase === "proved" ? (
+                                        <StatusMessage tone="success">
+                                            {PROOF_AMOUNT_LABEL} left the account, signed by the new
+                                            key. The account is spendable again.
+                                        </StatusMessage>
+                                    ) : (
+                                        <Button
+                                            onClick={() =>
+                                                suggestedTarget !== undefined &&
+                                                void onchain.proveControl({
+                                                    to: suggestedTarget.address as `0x${string}`,
+                                                    amount: PROOF_AMOUNT_WEI,
+                                                    newOwnerPrivateKeyHex:
+                                                        suggestedTarget.exportPrivateKeyHex_DEMO_ONLY(),
+                                                })
+                                            }
+                                            disabled={
+                                                onchain.state.phase === "proving" ||
+                                                !useSuggested ||
+                                                suggestedTarget === undefined
+                                            }
+                                        >
+                                            {onchain.state.phase === "proving"
+                                                ? "Sending…"
+                                                : !useSuggested
+                                                  ? "Control is with a key this demo does not hold"
+                                                  : `Prove it: send ${PROOF_AMOUNT_LABEL} as the new owner`}
+                                        </Button>
+                                    )}
+
+                                    <Explain>
+                                        <p>
+                                            The new key does not replace the Safe's owners — it owns
+                                            an ERC-7579 validator the recovery installed. A Safe
+                                            picks which validator checks a UserOp from the
+                                            operation's <em>nonce key</em>, so this send routes to
+                                            that validator rather than to the owner signature the
+                                            wallet normally uses.
+                                        </p>
+                                        <p>
+                                            Closing the old path is a separate decision and a
+                                            separate transaction: the new owner can call{" "}
+                                            <code>swapOwner</code> on the Safe. This demo stops
+                                            here, because "recovery covers loss, not theft" — the
+                                            lost key is lost, not hostile.
+                                        </p>
+                                    </Explain>
+                                </div>
                             ) : (
                                 <Button
                                     onClick={() =>
@@ -349,9 +426,14 @@ export function RecoverDialog({
                             )}
                         </div>
 
-                        {onchain.state.log.length > 0 && (
-                            <pre className="transcript">{onchain.state.log.join("\n")}</pre>
-                        )}
+                        <Transcript
+                            lines={onchain.state.log}
+                            // Every phase between starting and settling. `waiting` is the timelock,
+                            // which is the slowest of them and the one most worth showing as "still
+                            // going" rather than as a finished log.
+                            running={submitting}
+                            label="On-chain"
+                        />
                         {onchain.state.error !== null && (
                             <StatusMessage tone="error">{onchain.state.error}</StatusMessage>
                         )}
@@ -359,9 +441,11 @@ export function RecoverDialog({
                 )}
 
                 {/* This operation's transcript only. A shared one showed the seal's lines here. */}
-                {state.logs.recover.length > 0 && (
-                    <pre className="transcript">{state.logs.recover.join("\n")}</pre>
-                )}
+                <Transcript
+                    lines={state.logs.recover}
+                    running={running}
+                    label="Recovering"
+                />
 
                 {state.error !== null && <StatusMessage tone="error">{state.error}</StatusMessage>}
             </div>

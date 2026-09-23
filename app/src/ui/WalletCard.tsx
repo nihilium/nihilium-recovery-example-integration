@@ -8,6 +8,7 @@ import { useState } from "react";
 import { formatAmount } from "../integration/chains/amounts.js";
 import { useBalances } from "../demo/useBalances.js";
 import { AddressChip } from "./AddressChip.js";
+import { Transcript } from "./Transcript.js";
 import { Explain } from "./Explain.js";
 import { ProtectionBadge } from "./ProtectionBadge.js";
 import type { Settlement } from "../demo/useSettlement.js";
@@ -26,14 +27,25 @@ export function WalletCard({
     accounts,
     failure,
     vault,
+    walletVault,
     settlement,
     onRecover,
 }: {
     chain: ChainModule;
     accounts: DerivedAccount[];
     failure: string | undefined;
-    /** The vault covering this chain, or null. Drives the badge, and nothing else here. */
+    /** The vault covering *this chain*, or null. Drives the badge, and the protect action. */
     vault: VaultRecord | null;
+    /**
+     * The vault this wallet holds at all, covering whichever chains `addChain()` has reached.
+     *
+     * Separate from `vault` because the two answer different questions, and the gap between them is
+     * the state this card most needs to render: a wallet with a perfectly good gate, on a chain
+     * that gate does not cover yet. Before this was here, that state showed as *nothing* — no
+     * badge action, no protect button — while the chain it was sealed from showed a full set, and
+     * the one action that fixes it sat inside a collapsed card further down the page.
+     */
+    walletVault: VaultRecord | null;
     /** The on-chain half: what the module holds, and the action that puts it there. */
     settlement: Settlement;
     /**
@@ -42,10 +54,15 @@ export function WalletCard({
      */
     onRecover: () => void;
 }) {
-    const balances = useBalances(chain, accounts);
+
+    const balances = useBalances(chain, accounts.map((a) => a.address));
     const [sending, setSending] = useState(false);
     const first = accounts[0];
+    // `accounts[0]` is the account on every chain now — the smart account on EVM, the vault on
+    // Solana — so what it holds is what a send spends. There is no signer-versus-account split
+    // left to get wrong.
     const firstBalance = first === undefined ? undefined : balances[first.address];
+    const sendableBalance = typeof firstBalance === "object" ? firstBalance : null;
     // Read from the chain when it has been read; "not asked yet" is deliberately not "not installed".
     const state = protectionOf(vault, chain.id, settlement.state.onchain);
 
@@ -112,6 +129,47 @@ export function WalletCard({
                     );
                 })}
 
+                {chain.id === "solana-devnet" && (
+                    <Explain>
+                        <p>
+                            A Solana keypair&apos;s address <em>is</em> its public key, so a lost key is
+                            a permanently lost address — there is no code to install at it and nothing
+                            to recover. That is why recovery here covers a{" "}
+                            <strong>program-owned vault</strong> instead: a recovery rotates the
+                            vault&apos;s owner to a key you still hold, and everything inside comes with
+                            it. Anything left at the owner key does not.
+                        </p>
+                            <p>
+                                The vault is two accounts. The one above holds the lamports and is
+                                where you send; the one recovery is bound to — its{" "}
+                                <code>accountId</code>, and a KDF input — is{" "}
+                                <code className="mono">{first?.accountId}</code>. Nothing can
+                                move value out of that one, so it is never offered as a destination.
+                            </p>
+                    </Explain>
+                )}
+
+                {/* One vault, every chain. A gate exists but has never been extended to this chain,
+                    so the honest next step is not a second ceremony — it is `addChain()`, which is
+                    free, local, and contacts nobody. Offered here rather than only in the recovery
+                    card, because that card is collapsed by default and this is the action that
+                    makes one seal cover both chains. */}
+                {/* One action, on every chain. A chain the gate has not reached yet is added as
+                    part of protecting it rather than by a separate button pressed first: the add is
+                    free and instant, and making it a step of its own made it read as a cost. */}
+                {vault === null && walletVault !== null && walletVault.spent === null && (
+                    <div className="row">
+                        <Button
+                            onClick={() => void settlement.protect()}
+                            disabled={settlement.state.phase === "protecting"}
+                        >
+                            {settlement.state.phase === "protecting"
+                                ? "Protecting…"
+                                : "Protect this account"}
+                        </Button>
+                    </div>
+                )}
+
                 {/* The on-chain half, where the badge above says it is missing. Sealing produces a
                     recovery key; until the module holds it, nothing on this chain would honour it. */}
                 {vault !== null && vault.spent === null && settlement.supported && (
@@ -128,16 +186,15 @@ export function WalletCard({
                                           ? "Finish the rotation"
                                           : "Protect this account"}
                                 </Button>
-                                <span className="muted">
-                                    {state === "stale"
-                                        ? "The chain holds a key from a gate you replaced."
-                                        : "Registers this vault's recovery key on-chain. Costs gas, paid by this account."}
-                                </span>
                             </div>
                         )}
 
                         {settlement.state.log.length > 0 && (
-                            <pre className="transcript">{settlement.state.log.join("\n")}</pre>
+                            <Transcript
+                                lines={settlement.state.log}
+                                running={settlement.state.phase === "protecting"}
+                                label="Protecting"
+                            />
                         )}
 
                         {settlement.state.txHash !== null && (
@@ -208,7 +265,11 @@ export function WalletCard({
                     onClose={() => setSending(false)}
                     chain={chain}
                     account={first}
-                    balance={typeof firstBalance === "object" ? firstBalance : null}
+                    // **The account the value leaves**, which is not always the one that signs.
+                    // Solana's `send` is `execute_transfer` and spends the vault; taking the
+                    // signer's balance here capped the amount at the owner key's lamports and
+                    // offered to send funds that account does not hold.
+                    balance={sendableBalance}
                 />
             )}
         </Card>

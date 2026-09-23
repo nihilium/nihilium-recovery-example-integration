@@ -14,7 +14,7 @@ import {
     intentDigest,
     DEFAULT_INTENT_TTL_SECONDS,
 } from "../../src/integration/recovery/settlement/evm/intent.js";
-import { OWNABLE_VALIDATOR_ADDRESS } from "../../src/integration/recovery/settlement/evm/kernel.js";
+import { OWNABLE_VALIDATOR_ADDRESS } from "../../src/integration/recovery/settlement/evm/erc7579.js";
 import type { ModuleReader } from "../../src/integration/recovery/settlement/evm/reads.js";
 import { MODULE, RECOVERY_OWNER } from "./vectors.js";
 
@@ -50,14 +50,11 @@ describe("buildIntent", () => {
 
         // The whole payload, decoded: a validator config and no call, no target, no value. The
         // module's executeRecovery installs this and bumps the epoch — that is the entire reach of
-        // a recovery signature.
-        const [ownableInit] = decodeAbiParameters(
-            [{ type: "bytes" }, { type: "bytes" }, { type: "bytes" }],
-            `0x${solidity.newValidatorInitData.slice(42)}` as Hex,
-        );
+        // a recovery signature. No envelope to peel: Safe7579 hands these bytes to `onInstall` as
+        // they are.
         const [threshold, owners] = decodeAbiParameters(
             [{ type: "uint256" }, { type: "address[]" }],
-            ownableInit,
+            solidity.newValidatorInitData,
         );
         expect(threshold).toBe(1n);
         expect(owners).toEqual([RECOVERY_OWNER]);

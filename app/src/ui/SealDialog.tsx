@@ -21,6 +21,7 @@ import { useEmailDomainChecks } from "../demo/useEmailDomainChecks.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
+import { Transcript } from "./Transcript.js";
 import { Explain } from "./Explain.js";
 import { Notice } from "./Notice.js";
 import { downloadSeal } from "./downloadSeal.js";
@@ -271,7 +272,11 @@ export function SealDialog({
                     <p>{method.cost.describe(preset)}</p>
 
                     {flow.state.logs.seal.length > 0 && (
-                        <pre className="transcript">{flow.state.logs.seal.join("\n")}</pre>
+                        <Transcript
+                            lines={flow.state.logs.seal}
+                            running={flow.state.phase === "sealing"}
+                            label="Sealing"
+                        />
                     )}
                     {flow.state.error !== null && (
                         <StatusMessage tone="error">{flow.state.error}</StatusMessage>
@@ -300,7 +305,11 @@ export function SealDialog({
                         the moment the greyed “Mail me the seal” is worth reading — you have just
                         made the thing, and mailing it to a guardian is the next idea you will have. */}
                     <SealRow vault={vault} sealFile={flow.state.sealFile} />
-                    <pre className="transcript">{flow.state.logs.seal.join("\n")}</pre>
+                    <Transcript
+                        lines={flow.state.logs.seal}
+                        running={flow.state.phase === "sealing"}
+                        label="Sealing"
+                    />
                     <Explain>
                         <p>
                             The vault exists; the chain has not been told about it. A recovery key no

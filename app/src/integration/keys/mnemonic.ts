@@ -8,7 +8,7 @@
  * What does not change: the seed is the wallet's, not the recovery system's. The SDK derives its
  * recovery keys from a Recovery Root Secret it generates itself (§11) — no function here feeds it.
  */
-import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
+import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 
 export class InvalidMnemonicError extends Error {
@@ -16,6 +16,16 @@ export class InvalidMnemonicError extends Error {
     constructor() {
         super("Not a valid BIP-39 English mnemonic (checksum or wordlist).");
     }
+}
+
+/**
+ * A fresh 12-word English mnemonic, from the platform CSPRNG.
+ *
+ * 128 bits of entropy, not 256: twelve words is what wallets show, and a demo whose phrase does not
+ * look like a wallet's phrase is teaching a different thing by accident.
+ */
+export function newMnemonic(): string {
+    return generateMnemonic(wordlist, 128);
 }
 
 export function isValidMnemonic(mnemonic: string): boolean {

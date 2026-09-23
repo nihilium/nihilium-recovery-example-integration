@@ -49,6 +49,7 @@ export function RecoveryCard({
     protection,
     protecting,
     onProtect,
+    onNewSeed,
 }: {
     flow: RecoveryFlow;
     /** Null when the live ceremony is not configured — there is deliberately no free fallback. */
@@ -64,6 +65,7 @@ export function RecoveryCard({
     protection: Protection;
     protecting: boolean;
     onProtect: () => void;
+    onNewSeed: () => void;
 }) {
     const [sealing, setSealing] = useState(false);
 
@@ -120,8 +122,7 @@ export function RecoveryCard({
                     sealFile={flow.state.sealFile}
                     chainLabel={chainLabel}
                     covers={flow.covers}
-                    addChainLog={flow.state.logs.addChain}
-                    onAddChain={() => void flow.addChain()}
+                    onNewSeed={onNewSeed}
                     onReplace={() => setSealing(true)}
                 />
             )}
@@ -163,8 +164,7 @@ function SealedBody({
     sealFile,
     chainLabel,
     covers,
-    addChainLog,
-    onAddChain,
+    onNewSeed,
     onReplace,
 }: {
     vault: VaultRecord;
@@ -180,8 +180,8 @@ function SealedBody({
     /** Whether the chain on screen is in this vault. */
     covers: boolean;
     /** This operation's transcript, and only this one's. */
-    addChainLog: readonly string[];
-    onAddChain: () => void;
+    /** Mints a seed and switches to it — the only real answer to a spent vault. */
+    onNewSeed: () => void;
     onReplace: () => void;
 }) {
     return (
@@ -211,25 +211,19 @@ function SealedBody({
                     ))}
                 </ul>
 
-                {vault.spent !== null && <Notice tone="caution">{vault.spent.reason}</Notice>}
-
-                {/* One vault, every chain. A ceremony is paid, plural and slow; this is a local
-                    encryption against a key the vault already published. */}
-                {!covers && vault.spent === null && (
-                    <div className="row">
-                        <Button onClick={onAddChain}>Add {chainLabel} to this vault</Button>
-                        <span className="muted">
-                            Free and instant — the same guardians, no ceremony, no payment.
-                        </span>
-                    </div>
+                {vault.spent !== null && (
+                    <>
+                        <Notice tone="caution">{vault.spent.reason}</Notice>
+                        <div className="row">
+                            <Button onClick={onNewSeed}>Move to a new seed</Button>
+                        </div>
+                    </>
                 )}
-
-                {/* Rendered where it happens. These lines had no home at all before, so the only
-                    way they were ever seen was by leaking into whichever dialog opened next — and
-                    the millisecond count is the proof of "free", not a decoration. */}
-                {addChainLog.length > 0 && (
-                    <pre className="transcript">{addChainLog.join("\n")}</pre>
-                )}
+                {/* No add-chain button here either. It is not a separate step any more: protecting
+                    a chain the gate has not reached adds it first, in one action. Two buttons for
+                    one outcome made the free half look like a cost — and on a chain whose
+                    registration is signed by the recovery key, pressing add on its own minted a key
+                    that could never sign and was re-keyed a moment later. */}
 
                 {/* The gate changed and the chain did not. Loud, and on the card where the change
                     was made — the action lives on the wallet too, but nobody looks there after
@@ -245,7 +239,6 @@ function SealedBody({
                             <Button onClick={onProtect} disabled={protecting}>
                                 {protecting ? "Sending…" : `Update ${chainLabel} to this gate`}
                             </Button>
-                            <span className="muted">One transaction, paid by the account.</span>
                         </div>
                     </>
                 )}
@@ -256,9 +249,6 @@ function SealedBody({
                         <Button onClick={onProtect} disabled={protecting}>
                             {protecting ? "Sending…" : `Protect ${chainLabel} with this gate`}
                         </Button>
-                        <span className="muted">
-                            Nothing on-chain honours this gate yet.
-                        </span>
                     </div>
                 )}
 

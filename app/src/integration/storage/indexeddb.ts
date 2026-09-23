@@ -21,7 +21,31 @@
  * So the upgrade drops what is there. Those rows are not recoverable by this build under any
  * circumstances, and a demo that keeps them is a demo that fails at the least helpful moment.
  */
-export const DB_VERSION = 2;
+/**
+ * 3 — a vault is identified by its wallet, and the EVM account moved.
+ *
+ * Two changes land together and either one alone would strand what is stored. `VaultRecord` gained
+ * `walletId`, without which a vault is invisible to every lookup rather than merely wrong. And the
+ * Safe now names a module attester, which is hashed into its address — so `ChainContext.accountId`
+ * for EVM is a different address than it was, and `accountId` is a KDF input the envelope does not
+ * carry. A vault sealed by the old build derives keys for an account that no longer exists.
+ *
+ * Dropped rather than migrated, for the same reason as v2: there is no version of these rows this
+ * build can honour, and a demo that keeps them fails at the least helpful moment — after a paid
+ * ceremony, during a recovery.
+ */
+/**
+ * 4 — the Solana vault address stopped depending on the gate.
+ *
+ * The program's PDA seed was a hash of the SDK's `vaultId`, which is minted fresh on every re-seal,
+ * so replacing guardians created a *new* vault at a new address and left the balance in the old
+ * one. It is a constant now, and every stored Solana chain record therefore holds an `accountId`
+ * this build no longer derives — a KDF input pointing at an account it will not find.
+ *
+ * Dropped rather than migrated, as at v2 and v3: there is no rewriting that makes those rows true,
+ * and keeping them means a recovery derived against an address nothing honours.
+ */
+export const DB_VERSION = 4;
 
 /** Every store this app keeps. Declared in one place so an upgrade is a diff, not an archaeology. */
 export const STORES = {
@@ -49,10 +73,10 @@ function open(dbName: string): Promise<IDBDatabase> {
         request.onupgradeneeded = (event) => {
             const db = request.result;
 
-            // Anything written before v2 holds seals this build cannot open — see `DB_VERSION`.
-            // Cleared here rather than filtered on read, so there is no path where a stale seal
-            // reaches a paid ceremony.
-            if (event.oldVersion > 0 && event.oldVersion < 2) {
+            // Anything written before v4 holds seals or vaults this build cannot honour — see
+            // `DB_VERSION`. Cleared here rather than filtered on read, so there is no path where a
+            // stale seal reaches a paid ceremony.
+            if (event.oldVersion > 0 && event.oldVersion < 4) {
                 const upgrade = request.transaction;
                 for (const name of [STORES.seals, STORES.records, STORES.vaults]) {
                     if (db.objectStoreNames.contains(name)) upgrade?.objectStore(name).clear();

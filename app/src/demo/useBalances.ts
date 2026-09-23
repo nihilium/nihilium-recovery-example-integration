@@ -6,7 +6,7 @@
  * "stale", it is *absent*, and absent renders as loading.
  */
 import { useEffect, useState } from "react";
-import type { Balance, ChainModule, DerivedAccount } from "../integration/chains/types.js";
+import type { Balance, ChainModule } from "../integration/chains/types.js";
 
 export type BalanceState = Balance | "loading" | "unreadable";
 
@@ -15,9 +15,15 @@ interface Loaded {
     values: Record<string, BalanceState>;
 }
 
+/**
+ * Takes addresses rather than accounts, because not every balance worth showing belongs to one.
+ *
+ * On a chain where recovery protects a program-owned vault, the balance the user cares about sits
+ * at an address no key derives — so a signature keyed on `DerivedAccount` could not ask for it.
+ */
 export function useBalances(
     chain: ChainModule,
-    accounts: DerivedAccount[],
+    addresses: string[],
 ): Record<string, BalanceState> {
     const [loaded, setLoaded] = useState<Loaded>({ chainId: chain.id, values: {} });
 
@@ -25,14 +31,14 @@ export function useBalances(
         let live = true;
 
         void Promise.all(
-            accounts.map(async (account) => {
+            addresses.map(async (address) => {
                 try {
-                    const balance = await chain.balanceOf(account.address);
+                    const balance = await chain.balanceOf(address);
                     if (live) {
                         setLoaded((prev) =>
                             prev.chainId === chain.id
-                                ? { ...prev, values: { ...prev.values, [account.address]: balance } }
-                                : { chainId: chain.id, values: { [account.address]: balance } },
+                                ? { ...prev, values: { ...prev.values, [address]: balance } }
+                                : { chainId: chain.id, values: { [address]: balance } },
                         );
                     }
                 } catch {
@@ -40,7 +46,7 @@ export function useBalances(
                     if (live) {
                         setLoaded((prev) => ({
                             chainId: chain.id,
-                            values: { ...(prev.chainId === chain.id ? prev.values : {}), [account.address]: "unreadable" },
+                            values: { ...(prev.chainId === chain.id ? prev.values : {}), [address]: "unreadable" },
                         }));
                     }
                 }
@@ -50,7 +56,10 @@ export function useBalances(
         return () => {
             live = false;
         };
-    }, [chain, accounts]);
+        // Joined, because an array literal is a new reference on every render and would re-fetch
+        // every balance forever.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chain, addresses.join(",")]);
 
     return loaded.chainId === chain.id ? loaded.values : {};
 }

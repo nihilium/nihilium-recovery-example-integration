@@ -7,14 +7,17 @@
  */
 import cors from "cors";
 import express from "express";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, type Address, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
+import { recoveryVaultProgramIds } from "@nihilium/recovery-onchain-solana";
 import { printBootBanner } from "./boot.js";
 import { config } from "./config.js";
 import { logError, logInfo } from "./log.js";
 import { createRelayerRouter } from "./roles/relayer/index.js";
+import { createSolanaRelayerRouter } from "./roles/relayer/solana.js";
 import { createVetoRouter } from "./roles/veto/index.js";
 
 // From the SDK's address book, never a literal: the v1 -> v2 redeploy moved this address, and a
@@ -95,10 +98,61 @@ app.use(
     }),
 );
 
+// Mounted only when Solana is configured. An absent route answers 404, which is the honest
+// version of "this chain is not set up" — a stub that returned success would be worse than nothing.
+if (config.solana !== null) {
+    const solana = config.solana;
+    // The address book, never a literal — the same reason `MODULE_ADDRESS` comes from the SDK. A
+    // cluster the program was built for but never deployed to fails here, loudly, rather than at
+    // the first transaction against an address with no code.
+    const programId = recoveryVaultProgramIds[solana.cluster];
+    if (programId === undefined) {
+        throw new Error(
+            `The recovery vault program has no deployment on ${solana.cluster} (known: ` +
+                `${Object.keys(recoveryVaultProgramIds).join(", ")}). Set SOLANA_CLUSTER to one of ` +
+                "those, or leave SOLANA_RPC_URL empty to run without Solana roles.",
+        );
+    }
+    const relayerSeed = config.roles.relayer.on(solana.namespace).privateKey;
+    app.use(
+        "/api/roles/relayer/solana",
+        createSolanaRelayerRouter({
+            connection: new Connection(solana.rpcUrl, "confirmed"),
+            // SLIP-0010 yields the 32-byte seed; `fromSeed` expands it to the 64-byte secret key
+            // web3.js wants. `fromSecretKey` on the seed would throw, not silently differ.
+            relayer: Keypair.fromSeed(hexToBytes32(relayerSeed)),
+            programId: new PublicKey(programId),
+            cluster: solana.cluster,
+            fundMaxLamports: solana.fundMaxLamports,
+            feePayerMaxLamports: solana.feePayerMaxLamports,
+            vetoConfig: {
+                // The same parties as on Sepolia, each with its own key on this chain — which is
+                // the premise of `roleIdentity.ts`: a role is a party, not a key.
+                pauseAuthority: config.roles.pause.on(solana.namespace).authority.id,
+                resumeMembers: config.roles.resume.map(
+                    (role) => role.on(solana.namespace).authority.id,
+                ),
+                resumeThreshold: config.resumeThreshold,
+                timelockSeconds: config.timelockSeconds,
+                pauseCeilingSeconds: config.pauseCeilingSeconds,
+            },
+            log: (message) => logInfo("relayer", message),
+        }),
+    );
+}
+
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logError("http", "unhandled error", error);
     res.status(500).json({ error: "Internal error." });
 });
+
+/** A `0x`-prefixed 32-byte hex key as bytes. `Keypair.fromSeed` takes the seed, not a hex string. */
+function hexToBytes32(hex: string): Uint8Array {
+    const bare = hex.startsWith("0x") ? hex.slice(2) : hex;
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 32; i += 1) out[i] = Number.parseInt(bare.slice(i * 2, i * 2 + 2), 16);
+    return out;
+}
 
 process.on("unhandledRejection", (reason) => logError("process", "unhandled rejection", reason));
 process.on("uncaughtException", (error) => logError("process", "uncaught exception", error));

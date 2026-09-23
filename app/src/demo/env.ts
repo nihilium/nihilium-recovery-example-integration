@@ -5,7 +5,6 @@
  * in one of its modes — so where that key is read matters. Nothing outside this file touches
  * `import.meta.env`; `bindings.ts` turns what this returns into the app's one set of bindings.
  */
-import { DEMO_MNEMONIC } from "./mnemonic.js";
 
 export interface DemoEnv {
     /** The chain whose Nihilium deployment verifies email proofs. Sepolia today. */
@@ -13,7 +12,16 @@ export interface DemoEnv {
     serverUrl: string;
     sepoliaRpcUrl: string;
     bundlerUrl: string;
-    mnemonic: string;
+    /**
+     * Whose module attestations this wallet's Safe trusts.
+     *
+     * Part of the Safe's address, so it belongs in configuration rather than a constant: a demo
+     * pointing at a different deployment's attester would derive an account nobody funded. Written
+     * by `server/scripts/attest-modules.ts`, which prints it on completion.
+     */
+    moduleAttester: `0x${string}`;
+    /** Devnet RPC. Queried for real balances — this chain has no simulated ones. */
+    solanaRpcUrl: string;
     /**
      * Write capabilities on the record host and the watchtower, generated per machine by
      * `scripts/setup-env.mjs`. `undefined` when nothing generated them — and deliberately not
@@ -46,7 +54,8 @@ export function readEnv(): DemoEnv {
         serverUrl: env.VITE_SERVER_URL ?? "http://localhost:8787",
         sepoliaRpcUrl: env.VITE_SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
         bundlerUrl: env.VITE_BUNDLER_URL ?? "https://public.pimlico.io/v2/11155111/rpc",
-        mnemonic: env.VITE_DEMO_MNEMONIC ?? DEMO_MNEMONIC,
+        moduleAttester: (env.VITE_MODULE_ATTESTER ?? "0x4490f5D9f1cf47b2FBa68158c130aAE8107274a9") as `0x${string}`,
+        solanaRpcUrl: env.VITE_SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
         // Matched by `server/.env`; both sides must agree or appends and registrations are refused.
         recordAppendSecret: blank(env.VITE_RECORD_APPEND_SECRET),
         watchRegisterSecret: blank(env.VITE_WATCH_REGISTER_SECRET),

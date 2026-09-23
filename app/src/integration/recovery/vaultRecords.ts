@@ -51,6 +51,20 @@ export interface VaultChainRecord {
 
 export interface VaultRecord {
     vaultId: string;
+    /**
+     * Which wallet this vault belongs to — the seed, not an address.
+     *
+     * **A vault is per wallet and covers many chains, so it cannot be identified by an address.**
+     * Each chain's protected account is a different thing: on EVM it is the smart account, on
+     * Solana a program-owned PDA that is not the wallet's key at all. Looking a vault up by "the
+     * current chain's account" therefore finds it on the chain it was sealed from and misses it
+     * everywhere else — which reads as "no recovery here" and offers a second paid ceremony. That
+     * is the exact failure this field exists to make impossible.
+     *
+     * Opaque to this file, and supplied by the caller: the demo passes a fingerprint of the seed
+     * phrase, and a real wallet would pass whatever it calls an account. Never the seed itself.
+     */
+    walletId: string;
     recordId: RecordId;
     createdAt: number;
     /**

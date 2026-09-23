@@ -32,9 +32,17 @@ export default defineConfig({
         },
     },
     optimizeDeps: {
-        // A linked package is treated as source rather than a dependency, so Vite walks its whole
-        // tree on every start. Pre-bundling collapses each into one chunk and keeps the crawl out
-        // of the sibling checkout in the first place.
+        // Two reasons, and the second one is load-bearing rather than an optimisation.
+        //
+        // 1. A linked package is treated as source rather than a dependency, so Vite walks its
+        //    whole tree on every start. Pre-bundling collapses each into one chunk and keeps the
+        //    crawl out of the sibling checkout in the first place.
+        // 2. `recovery-onchain-solana` is **CommonJS** — the only one in the SDK; every other
+        //    package is ESM. A browser `import { recoveryVaultProgramIds } from …` against a CJS
+        //    module fails at runtime with "does not provide an export named", because Vite serves
+        //    linked packages unbundled and there is no interop layer. Pre-bundling is what converts
+        //    the named exports. The production build never showed it: Rollup applies its own
+        //    CommonJS interop, so `npm run build` passed while `npm run dev` did not.
         include: [
             "@nihilium/recovery-core",
             "@nihilium/recovery-condition-quorum",
@@ -44,6 +52,10 @@ export default defineConfig({
             "@nihilium/recovery-nihilium",
             "@nihilium/recovery-resolver-dkim",
             "@nihilium/recovery-veto",
+            "@nihilium/recovery-onchain-evm",
+            "@nihilium/recovery-onchain-solana",
+            "@nihilium/recovery-watchtower-evm",
+            "@nihilium/recovery-watchtower-solana",
         ],
     },
 });

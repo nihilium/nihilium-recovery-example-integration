@@ -4,8 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Demo application: how a wallet integrates the Nihilium Recovery SDK.",
-  "engines": { "node": ">=20" },
-  "workspaces": ["app", "server"],
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "app",
+    "server",
+    "packages/keys"
+  ],
   "scripts": {
     "preinstall": "node scripts/check-sdk-checkout.mjs",
     "postinstall": "node scripts/setup-env.mjs",
@@ -15,8 +21,8 @@
     "predev:server": "node scripts/setup-env.mjs",
     "dev:server": "npm --workspace server run dev",
     "build": "npm --workspace app run build",
-    "typecheck": "npm --workspace app run typecheck && npm --workspace server run typecheck",
-    "test": "npm --workspace app run test && npm --workspace server run test",
+    "typecheck": "npm --workspace packages/keys run typecheck && npm --workspace app run typecheck && npm --workspace server run typecheck",
+    "test": "npm --workspace packages/keys run test && npm --workspace app run test && npm --workspace server run test",
     "lint": "oxlint"
   },
   "devDependencies": {

@@ -18,7 +18,7 @@ import type {
     SubjectPrompt,
 } from "../integration/conditions/types.js";
 import {
-    addChainToVault,
+
     recoverVault,
     resealVault,
     sealVault,
@@ -30,7 +30,13 @@ import type { AppBindings } from "./bindings.js";
 export type FlowPhase = "idle" | "sealing" | "sealed" | "recovering" | "recovered" | "failed";
 
 /** Which operation a transcript line belongs to. */
-export type LogChannel = "seal" | "addChain" | "recover";
+/**
+ * Which operation a transcript line belongs to.
+ *
+ * No `addChain`: adding a chain is not something a user starts, it is the first half of protecting
+ * one, so its lines belong beside the transaction they precede in the settlement transcript.
+ */
+export type LogChannel = "seal" | "recover";
 
 export interface MemberView {
     index: number;
@@ -85,7 +91,7 @@ const EMPTY: FlowState = {
     sealFile: null,
     members: [],
     prompts: {},
-    logs: { seal: [], addChain: [], recover: [] },
+    logs: { seal: [], recover: [] },
     error: null,
     result: null,
 };
@@ -96,8 +102,34 @@ export function useRecoveryFlow(
     methods: MethodRegistry | null,
     chain: ChainModule,
     account: DerivedAccount | undefined,
+    /**
+     * Which wallet is on screen — a seed fingerprint, never an address.
+     *
+     * Both lookups below key on it. A vault covers many chains whose protected accounts are
+     * different kinds of thing — a smart account here, a program-owned vault on Solana — so an
+     * address can only ever identify it on the chain it was sealed from. Keying on one made every
+     * other chain read as "no recovery" and offer a second paid ceremony.
+     */
+    walletId: string,
 ) {
     const [state, setState] = useState<FlowState>(EMPTY);
+
+    /**
+     * Re-read the ledger.
+     *
+     * Exposed, not only run on mount, because this hook is no longer the only writer: protecting a
+     * chain adds it to the vault, and `useSettlement` does that itself. Without being told, the
+     * badge compares the chain's new recovery owner against the row it replaced and reads
+     * "Protected by a replaced gate" forever.
+     */
+    const reload = useCallback(async () => {
+        const vaults = await bindings.vaults.list();
+        setState((prev) => ({
+            ...prev,
+            vaults,
+            phase: prev.phase === "idle" && vaults.length > 0 ? "sealed" : prev.phase,
+        }));
+    }, [bindings]);
 
     // Whatever this browser already sealed, so a reload does not look like a fresh start.
     useEffect(() => {
@@ -125,17 +157,24 @@ export function useRecoveryFlow(
     // Bound per channel so they can be handed straight to an `onProgress` that takes a bare string,
     // and memoized so passing one does not re-run the effects that depend on it.
     const noteSeal = useCallback((line: string) => note("seal", line), [note]);
-    const noteAddChain = useCallback((line: string) => note("addChain", line), [note]);
     const noteRecover = useCallback((line: string) => note("recover", line), [note]);
 
     /** The vault covering one chain. A vault covers the chains `addChain()` was called for, not all. */
     const vaultFor = useCallback(
-        (chainId: string): VaultRecord | null =>
-            state.vaults.find((vault) => vault.chains.some((row) => row.chainId === chainId)) ?? null,
+        (chainId: string, forWalletId: string | undefined): VaultRecord | null => {
+            if (forWalletId === undefined) return null;
+            return (
+                state.vaults.find(
+                    (vault) =>
+                        vault.walletId === forWalletId &&
+                        vault.chains.some((row) => row.chainId === chainId),
+                ) ?? null
+            );
+        },
         [state.vaults],
     );
 
-    const active = vaultFor(chain.id);
+    const active = vaultFor(chain.id, walletId);
 
     /**
      * The vault this wallet holds, whether or not it covers the chain on screen.
@@ -145,7 +184,11 @@ export function useRecoveryFlow(
      * second paid ceremony for a wallet that already had a perfectly good gate. One vault covers
      * every chain added to it; the fix is `addChain()`, which is free.
      */
-    const vault = state.vaults.at(-1) ?? null;
+    const vault =
+        state.vaults.find((row) => row.walletId === walletId) ??
+        // Nothing for this wallet. Not "the most recent vault" — that would show the previous
+        // seed's gate against a wallet it does not protect.
+        null;
     const covers = active !== null;
 
     const runSeal = useCallback(
@@ -171,6 +214,7 @@ export function useRecoveryFlow(
                     threshold,
                     chain,
                     account,
+                    walletId,
                     vaultId: nextVaultId(account.accountId, state.vaults),
                     onSubjectSealed: (event: { index: number; summary: string }) =>
                         noteSeal(`sealVault  #${event.index}  ${event.summary}`),
@@ -201,7 +245,7 @@ export function useRecoveryFlow(
                 setState((prev) => ({ ...prev, phase: "failed", error: messageOf(error) }));
             }
         },
-        [account, bindings, chain, methods, noteSeal, state.vaults],
+        [account, bindings, chain, methods, noteSeal, state.vaults, walletId],
     );
 
     const seal = useCallback(
@@ -217,29 +261,6 @@ export function useRecoveryFlow(
         [active, runSeal],
     );
 
-    /** Free, offline, and contacts nobody. The asymmetry against `seal` is the lesson. */
-    const addChain = useCallback(async () => {
-        const method = vault === null ? null : (methods?.get(vault.gate.methodId) ?? null);
-        if (vault === null || method === null || account === undefined || covers) return;
-        setState((prev) => ({ ...prev, error: null, logs: { ...prev.logs, addChain: [] } }));
-        try {
-            const updated = await addChainToVault(bindings.stores, {
-                method,
-                vault,
-                chain,
-                account,
-                onProgress: noteAddChain,
-            });
-            setState((prev) => ({
-                ...prev,
-                vaults: prev.vaults.map((row) =>
-                    row.vaultId === updated.vaultId ? updated : row,
-                ),
-            }));
-        } catch (error) {
-            setState((prev) => ({ ...prev, error: messageOf(error) }));
-        }
-    }, [account, bindings, chain, covers, methods, noteAddChain, vault]);
 
     const recover = useCallback(
         async (selected: readonly number[]) => {
@@ -366,8 +387,8 @@ export function useRecoveryFlow(
     }, []);
 
     return useMemo(
-        () => ({ state, active, vault, covers, vaultFor, seal, reseal, addChain, recover, forgetKey, answerPrompt, clearError }),
-        [state, active, vault, covers, vaultFor, seal, reseal, addChain, recover, forgetKey, answerPrompt, clearError],
+        () => ({ state, active, vault, covers, vaultFor, seal, reseal, recover, reload, forgetKey, answerPrompt, clearError }),
+        [state, active, vault, covers, vaultFor, seal, reseal, recover, reload, forgetKey, answerPrompt, clearError],
     );
 }
 

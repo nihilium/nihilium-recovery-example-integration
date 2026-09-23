@@ -393,7 +393,8 @@ body {
   transition: transform var(--nih-duration) var(--nih-ease);
 }
 
-.disclosure[open] .disclosure__marker {
+.disclosure[open] .disclosure__marker,
+.transcript-fold[open] .disclosure__marker {
   transform: rotate(90deg);
 }
 
@@ -416,6 +417,31 @@ body {
   padding-top: var(--nih-space-3);
   border-top: 1px solid var(--nih-color-border-subtle);
   font-size: var(--nih-text-sm);
+}
+
+/* The active seed. The name carries the weight; the phrase beside it stays monospace so a
+ * mistyped word is visible, and is a copy target rather than twelve words to select by hand. */
+.seed-bar__current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nih-space-2);
+  min-width: 0;
+}
+
+.seed-bar__name {
+  font-size: var(--nih-text-base);
+  font-weight: var(--nih-weight-bold);
+  color: var(--nih-color-text);
+  letter-spacing: 0.01em;
+}
+
+.seed-bar__current .address-chip {
+  min-width: 0;
+}
+
+.seed-bar__current .address-chip code {
+  overflow-wrap: anywhere;
 }
 
 /* The recovery stage. No success styling below `executed`, deliberately: `vault-open` is the state
@@ -688,4 +714,88 @@ body {
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* A seed and its one destructive control, side by side. */
+.seed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--nih-space-3);
+}
+
+.seed-row .gate-option {
+  flex: 1;
+}
+
+.seed-row__note {
+  flex: none;
+  font-size: var(--nih-text-sm);
+}
+
+/* ---------- an operation in flight ---------- */
+
+/* Indeterminate on purpose: a ceremony ends when people answer their email, and a bar filling
+ * toward a guessed deadline would be the demo flattering exactly what it is trying to show. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+}
+
+.progress__bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-field);
+}
+
+.progress__sweep {
+  position: absolute;
+  inset-block: 0;
+  inline-size: 40%;
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-border);
+  animation: nih-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes nih-sweep {
+  0% { inset-inline-start: -40%; }
+  100% { inset-inline-start: 100%; }
+}
+
+/* Whatever the reader's motion setting says. A sweeping bar is decoration; the line below it is
+ * the information, and that stays either way. */
+@media (prefers-reduced-motion: reduce) {
+  .progress__sweep {
+    animation: none;
+    inline-size: 100%;
+    opacity: 0.4;
+  }
+}
+
+.progress__line {
+  color: var(--nih-color-text);
+  font-size: var(--nih-text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* The same lines after the fact. Closed by default, which is what hides them automatically. */
+.transcript-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+  cursor: pointer;
+  color: var(--nih-color-text-muted, inherit);
+  font-size: var(--nih-text-sm);
+  list-style: none;
+}
+
+.transcript-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.transcript-fold[open] > summary {
+  margin-block-end: var(--nih-space-2);
 }

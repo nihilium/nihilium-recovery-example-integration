@@ -23,7 +23,7 @@
  */
 import type { RecoveryIntent } from "@nihilium/recovery-core";
 import type { Address, Hex } from "viem";
-import { OWNABLE_VALIDATOR_ADDRESS, recoveryValidatorInitData } from "./kernel.js";
+import { OWNABLE_VALIDATOR_ADDRESS, recoveryValidatorInitData } from "./erc7579.js";
 import type { ModuleReader, SolidityIntent } from "./reads.js";
 
 /**

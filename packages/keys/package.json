@@ -1,0 +1,27 @@
+{
+    "name": "@nihilium-demo/keys",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "description": "Seed + path -> key pair, on both curves. Shared by the app and the server.",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "scripts": {
+        "typecheck": "tsc -b",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@nihilium/recovery-core": "file:../../../recovery-sdk/packages/core",
+        "@noble/curves": "^2.4.0",
+        "@noble/hashes": "^2.4.0",
+        "@scure/bip32": "^2.4.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.9.3",
+        "vitest": "^5.0.1"
+    }
+}

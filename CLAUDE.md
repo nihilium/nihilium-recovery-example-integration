@@ -36,11 +36,18 @@ app/                  React + Vite. The wallet, the roles a user plays, the scen
   src/ui/             design-system components, layout, the demo banner
 server/               Express. Every role that cannot run in a browser, each on its own router.
   src/roles/          records, watchtower, veto, relayer — one directory each
+packages/keys/        BIP-32 + SLIP-0010 derivation. The one thing both halves must agree on
 docs/                 per-scenario walkthroughs, written for someone integrating
 ```
 
-`app/` and `server/` are separate npm projects (like `../keyless-recovery`), each with its own
-`package.json`. Root scripts proxy to both.
+`app/`, `server/` and `packages/keys` are separate npm projects (like `../keyless-recovery`), each
+with its own `package.json`. Root scripts proxy to all three.
+
+`packages/keys` exists because the server derives **role** keys on two curves and the app derives
+wallet keys on the same two. A copy in each would be two implementations that must agree about what
+a path means, with vectors in only one — and that failure is silent, because a wrong derivation
+still yields a valid key, just for an account nobody named. It holds the scheme and nothing else:
+paths stay with whoever owns the branch.
 
 ### The copy line
 
@@ -81,14 +88,20 @@ process.
 Three veto roles on one key looks correctly configured and is worthless. The demo therefore gives
 each its own key, its own route, and its own visibly separate control — and says why in the UI.
 
-**Abort is the wallet's own key, by decision, and it costs something.** The provider holds pause and
-resume because a wallet provider wants those controls; abort sits with the owner so that a recovery
-started against someone who still has their keys can always be killed by them. The SDK's §7 says an
-abort key must *not* be seed-derived — in true seed loss it is gone exactly when it is needed, so it
-cannot back up a Nihilium failure — and `validateVetoConfig` throws on it. This build does not
-declare `seedDerived` to the validator, so that check does not fire. The demo therefore calls
-`reviewVetoConfig` instead and renders its `unverified` line, which says the check could not be made
-rather than that it passed. Anyone copying this should choose a bare owner-held key instead.
+**Abort is the wallet's own key, which the SDK calls the natural default.** The provider holds pause
+and resume because a wallet provider wants those controls; abort sits with the owner, because the
+common case is not a rogue Nihilium at all — it is someone opening a recovery while the owner still
+has access, and the obvious party to stop that is whoever holds the key. §7 has exactly one hard
+rule left: the abort key **must not be seal-gated**, since it would then inherit Nihilium's liveness
+and could not back up Nihilium's failure. Seed-derived is explicitly fine — provenance is not what
+makes a key a backstop, sitting outside Nihilium's control is. A separate offline key is *stronger*,
+because it survives losing the owner key, but that is a tradeoff to offer and never a requirement to
+enforce: do not build a UI that forces a distinct abort key, and do not validate against one.
+
+`@nihilium/recovery-veto` is wired to nothing in the SDK, so `validateVetoConfig` runs only because
+this app calls it before registering — with its independence context declared, not withheld. The
+chain cannot make that check: the module will install a config whose pause authority also sits in
+the resume quorum without complaint.
 
 `server/` is the only place a private key that is not the demo wallet's may exist. A role there is
 an account index against `ROLE_MNEMONIC`, resolved per chain through that chain's own curve and
@@ -108,7 +121,7 @@ Each chain module declares the common surface:
 | | |
 |---|---|
 | `id`, `label`, `icon` | display. `icon` is a **name**, not a component: React may not cross the copy line |
-| `namespace` | CAIP-2 — `eip155:11155111`, `solana:devnet`, … (a KDF input; pin it) |
+| `namespace` | CAIP-2 — `eip155:11155111`, `SOLANA_NAMESPACE.devnet`, … (a KDF input; never hand-written — `solana:devnet` is not a chain id) |
 | `tier` | `"smart-account"` or `"script"` — decides which veto capabilities exist at all |
 | `keyAdapter` | the SDK's `KeyAdapter`, or one written here |
 | `deriveAccounts(seed)` | returns **a list** — account-model chains return one, UTXO chains return several |

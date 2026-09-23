@@ -3,8 +3,9 @@
  *
  * Two kinds of assertion here, and the difference matters:
  *
- * - **Externally verifiable.** The SLIP-0010 vectors are the published ones, and the EVM address is
- *   what every tool that has ever loaded the Anvil mnemonic shows. If these break, we are wrong.
+ * - **Externally verifiable.** The EVM address is what every tool that has ever loaded the Anvil
+ *   mnemonic shows. If it breaks, we are wrong. The SLIP-0010 vectors moved to
+ *   `packages/keys/test/` with the scheme itself — they judge the derivation, not this wallet.
  * - **Regression pins.** The Solana and Zcash addresses are this repo's own output, recorded so a
  *   change in derivation is loud. They say "this has not changed", not "this is right" — their
  *   correctness rests on the paths, the encodings, and the vectors above.
@@ -12,43 +13,26 @@
  * Why pin at all: every one of these strings becomes a `ChainContext.accountId`, which is an HKDF
  * input. A silent change here re-derives every recovery key in the demo.
  */
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import { toSolanaAddress } from "@nihilium/recovery-key-solana";
-import { deriveEd25519, deriveSecp256k1 } from "../src/integration/keys/derive.js";
+import { deriveEd25519, deriveSecp256k1 } from "@nihilium-demo/keys";
 import { seedFromMnemonic, isValidMnemonic } from "../src/integration/keys/mnemonic.js";
 import { EVM_PATH, SOLANA_PATH, ZCASH_PATHS } from "../src/integration/keys/paths.js";
-import { slip10Ed25519, UnhardenedPathError } from "../src/integration/keys/slip10.js";
 import {
     decodeZcashTransparentAddress,
     toZcashTransparentAddress,
 } from "../src/integration/chains/zcash/address.js";
-import { DEMO_MNEMONIC } from "../src/demo/mnemonic.js";
+/**
+ * A fixed phrase, declared here rather than imported.
+ *
+ * These vectors pin derivation, so the phrase has to be constant — and the app no longer ships one:
+ * it mints its own on first run. This is the published BIP-39 test vector, used as an input to the
+ * arithmetic and never as a wallet.
+ */
+const DEMO_MNEMONIC = "test test test test test test test test test test test junk";
 
 const seed = seedFromMnemonic(DEMO_MNEMONIC);
-
-describe("SLIP-0010 ed25519 — published test vector 1", () => {
-    // Seed 000102030405060708090a0b0c0d0e0f, from the SLIP-0010 specification. Cross-checked against
-    // `ed25519-hd-key`, an independent implementation.
-    const vectorSeed = hexToBytes("000102030405060708090a0b0c0d0e0f");
-
-    it("derives m/0'", () => {
-        expect(bytesToHex(slip10Ed25519(vectorSeed, "m/0'"))).toBe(
-            "68e0fe46dfb67e368c75379acec591dad19df3cde26e63b93a8e704f1dade7a3",
-        );
-    });
-
-    it("derives m/0'/1'", () => {
-        expect(bytesToHex(slip10Ed25519(vectorSeed, "m/0'/1'"))).toBe(
-            "b1d0bad404bf35da785a64ca1ac54b2617211d2777696fbffaf208f746ae84f2",
-        );
-    });
-
-    it("refuses an unhardened segment rather than inventing an answer", () => {
-        expect(() => slip10Ed25519(vectorSeed, "m/44'/501'/0'/0")).toThrow(UnhardenedPathError);
-    });
-});
 
 describe("the demo mnemonic", () => {
     it("is a valid BIP-39 phrase", () => {

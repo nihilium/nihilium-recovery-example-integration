@@ -5,7 +5,7 @@
  * stays is the one with a cost attached — the ceremony is live and sealing spends money. The rest
  * are true and worth knowing, so they are still here, behind the Explain toggle.
  */
-import { DEMO_MNEMONIC_WARNING } from "../demo/mnemonic.js";
+import { SEED_WARNING } from "../demo/mnemonic.js";
 import { Explain } from "./Explain.js";
 
 export function DemoBanner({ ceremonyReady }: { ceremonyReady: boolean }) {
@@ -25,7 +25,7 @@ export function DemoBanner({ ceremonyReady }: { ceremonyReady: boolean }) {
                 <Explain>
                     <p>
                         Example integration of the Nihilium Recovery SDK — not a wallet.{" "}
-                        {DEMO_MNEMONIC_WARNING}
+                        {SEED_WARNING}
                     </p>
                     <p>
                         Recovery here restores access an owner <em>lost</em>; it does not defend a

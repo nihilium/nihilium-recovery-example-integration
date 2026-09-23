@@ -18,12 +18,26 @@ export interface ChainRegistryOptions {
     evmRpcUrl: string;
     /** Where UserOps go. Sending value and installing the recovery module both need one. */
     evmBundlerUrl: string;
+    /** Whose module attestations the EVM account trusts — and part of its address. */
+    moduleAttester: `0x${string}`;
+    /** Solana devnet RPC. Balances on that chain are read, not simulated. */
+    solanaRpcUrl: string;
+    /** Where the relayer lives. Solana sends route their fee through it; EVM pays its own. */
+    serverUrl?: string;
+    /** Resolves this wallet's Solana vault, when it has one. See `SolanaChainOptions`. */
 }
 
 export function createChainRegistry(options: ChainRegistryOptions): ChainRegistry {
     const chains: ChainModule[] = [
-        createEvmSepoliaChain({ rpcUrl: options.evmRpcUrl, bundlerUrl: options.evmBundlerUrl }),
-        createSolanaDevnetChain(),
+        createEvmSepoliaChain({
+            rpcUrl: options.evmRpcUrl,
+            bundlerUrl: options.evmBundlerUrl,
+            attester: options.moduleAttester,
+        }),
+        createSolanaDevnetChain({
+            rpcUrl: options.solanaRpcUrl,
+            ...(options.serverUrl ? { serverUrl: options.serverUrl } : {}),
+        }),
         createZcashTestnetChain(),
     ];
 

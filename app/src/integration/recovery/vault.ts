@@ -23,6 +23,7 @@
 import {
     RecoverySDK,
     type RecoveredAuthority,
+    type RecoveryKeyInput,
     type SealBlob,
     type SealStore,
     type SealedDataStore,
@@ -60,6 +61,8 @@ export interface SealVaultParams {
     chain: ChainModule;
     account: DerivedAccount;
     vaultId: string;
+    /** The wallet this vault belongs to. See `VaultRecord.walletId` for why it is not an address. */
+    walletId: string;
     /** Bumped by a completed recovery. Seal against what the chain says *now*, and record it. */
     epoch?: number;
     onSubjectSealed?(event: SubjectSealed): void;
@@ -136,6 +139,7 @@ export async function sealVault(deps: VaultDeps, params: SealVaultParams): Promi
 
     const vault: VaultRecord = {
         vaultId: params.vaultId,
+        walletId: params.walletId,
         recordId: created.recordId,
         createdAt: Date.now(),
         ceremonyMs,
@@ -158,6 +162,23 @@ export interface AddChainParams {
     account: DerivedAccount;
     /** Bumped by a completed recovery on *that* chain. Seal against what this chain says now. */
     epoch?: number;
+    /**
+     * Bring your own root, so this chain's recovery key can be *used* and not merely recorded.
+     *
+     * Omitted, the SDK mints a root, derives the public half and wipes the rest — which is what you
+     * want everywhere the chain only needs to be told an address. Solana's `register` makes the
+     * incoming guardian sign a digest, so there the caller must hold the root long enough to
+     * produce one signature. It is never persisted; see `protectOnSolana`.
+     */
+    recoveryKey?: RecoveryKeyInput;
+    /**
+     * Mint a fresh key for a chain already in this vault, replacing its record.
+     *
+     * Not a way around the duplicate guard: two roots for one chain in one vault would leave a
+     * recovery with no way to say which is current, and that is still refused. This *replaces* the
+     * record, so there is exactly one key per chain either way.
+     */
+    rekey?: boolean;
     onProgress?(message: string): void;
 }
 
@@ -183,7 +204,15 @@ export async function addChainToVault(
     params: AddChainParams,
 ): Promise<VaultRecord> {
     const existing = params.vault.chains.find((row) => row.chainId === params.chain.id);
-    if (existing !== undefined) {
+    if (existing !== undefined && params.rekey === true) {
+        // Re-keying, not double-adding. A chain whose root the app did not keep cannot produce the
+        // registration signature its settlement needs, and minting a fresh root for that chain is
+        // the only way to get one. The superseded entry stays in the record — the store is
+        // append-only — and the vault record points at the new key, which is what a recovery reads.
+        params.onProgress?.(
+            `addChain   re-keying ${params.chain.id}; the previous recovery key for this chain is superseded`,
+        );
+    } else if (existing !== undefined) {
         throw new Error(
             `${params.chain.label} is already in vault ${params.vault.vaultId}. Adding it twice ` +
                 "would put a second root secret for the same chain in one vault, and a recovery " +
@@ -203,12 +232,23 @@ export async function addChainToVault(
     const context = chainContextOf(params.vault, {
         namespace: params.chain.namespace,
         tier: params.chain.tier,
+        // Straight from the chain module, on every chain. Solana used to need a chain read here —
+        // its vault address depended on the SDK's vault id, so it could not be known until one
+        // existed. With that dependency gone the address is a function of the seed, exactly like
+        // the counterfactual smart-account address on EVM, and there is nothing to wait for.
         accountId: params.account.accountId,
         epoch: params.epoch ?? 0,
     });
 
     const startedAt = performance.now();
-    const added = await sdk.addChain({ publicComponent: params.vault.publicComponent, chain: context });
+    const added = await sdk.addChain({
+        publicComponent: params.vault.publicComponent,
+        chain: context,
+        // A caller-supplied root is how a chain that must *sign* its own registration gets a key it
+        // can sign with: the SDK would otherwise mint and wipe the root internally, leaving only a
+        // public half. The caller holds it for one signature and zeroes it — see `protectOnSolana`.
+        ...(params.recoveryKey ? { recoveryKey: params.recoveryKey } : {}),
+    });
     const writeMs = Math.round(performance.now() - startedAt);
     params.onProgress?.(`addChain   ${params.chain.id} in ${writeMs} ms · no ceremony, no payment`);
 
@@ -229,9 +269,12 @@ export async function addChainToVault(
 
     const updated: VaultRecord = {
         ...params.vault,
+        chains: [
+            ...params.vault.chains.filter((row) => row.chainId !== params.chain.id),
+            chainRecord,
+        ],
         // The annotation grows with each chain, so the next `addChain()` builds on this one.
         publicComponent: added.publicComponent,
-        chains: [...params.vault.chains, chainRecord],
     };
     await deps.vaults.put(updated);
     return updated;

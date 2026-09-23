@@ -66,6 +66,9 @@ export function createAppBindings(): AppBindings {
         chains: createChainRegistry({
             evmRpcUrl: env.sepoliaRpcUrl,
             evmBundlerUrl: env.bundlerUrl,
+            solanaRpcUrl: env.solanaRpcUrl,
+            serverUrl: env.serverUrl,
+            moduleAttester: env.moduleAttester,
         }),
         methods,
         methodError,

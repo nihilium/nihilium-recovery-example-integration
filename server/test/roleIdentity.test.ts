@@ -8,15 +8,27 @@
  * otherwise.
  */
 import { describe, expect, it } from "vitest";
+import { SOLANA_NAMESPACE } from "@nihilium/recovery-key-solana";
+import { parseHardenedPath } from "@nihilium-demo/keys";
 import {
     createRoleIdentity,
-    DEMO_ROLE_MNEMONIC,
     ROLE_CHAINS,
     type RoleIdentityOptions,
 } from "../src/roleIdentity.js";
 
 const SEPOLIA = "eip155:11155111";
-const options: RoleIdentityOptions = { mnemonic: DEMO_ROLE_MNEMONIC, supplied: {} };
+const SOLANA = SOLANA_NAMESPACE.devnet;
+/**
+ * A fixed phrase, declared here rather than imported.
+ *
+ * These vectors pin derivation, so it has to be constant — and the server no longer ships one:
+ * `ROLE_MNEMONIC` is required and generated per machine, because the published phrase it used to
+ * fall back to derives addresses anyone can reach. This is that phrase, used as an input to the
+ * arithmetic and never as a key that holds anything.
+ */
+const FIXTURE_MNEMONIC = "test test test test test test test test test test test junk";
+
+const options: RoleIdentityOptions = { mnemonic: FIXTURE_MNEMONIC, supplied: {} };
 
 describe("role identities", () => {
     it("derives the same authority every boot", () => {
@@ -69,8 +81,59 @@ describe("role identities", () => {
     });
 
     it("refuses a chain no role has a scheme for", () => {
+        // `solana:devnet` reads like a chain id and is not one — CAIP-2 for Solana is the truncated
+        // genesis hash. Since the namespace is a KDF input, a hand-written one has to fail here
+        // rather than derive a perfectly valid key for a chain that does not exist.
         expect(() => createRoleIdentity("pause", 1, options).on("solana:devnet")).toThrow(
             /No role key scheme/,
         );
+    });
+});
+
+describe("role identities on Solana", () => {
+    it("derives on ed25519, not secp256k1", () => {
+        const key = createRoleIdentity("relayer", 0, options).on(SOLANA);
+        expect(key.publicKey.algorithm).toBe("ed25519");
+        expect(key.publicKey.bytes).toHaveLength(32);
+        expect(key.authority.namespace).toBe(SOLANA);
+    });
+
+    it("pins the relayer's devnet address", () => {
+        // A regression pin, not an external truth: it says derivation has not moved. Every role
+        // address is something an operator funds once, and a silent change strands the balance.
+        expect(createRoleIdentity("relayer", 0, options).on(SOLANA).authority.id).toBe(
+            "AqynRZwvVqUPRwRJXvm6odUb3t93fDjnWe3p6BeuUFxD",
+        );
+    });
+
+    it("gives one role different keys on different chains", () => {
+        // The premise of this file: a role is a party, not a key. The same party on two chains is
+        // two key pairs, and conflating them is impossible because the curves differ.
+        const relayer = createRoleIdentity("relayer", 0, options);
+        expect(relayer.on(SOLANA).authority.id).not.toBe(relayer.on(SEPOLIA).authority.id);
+    });
+
+    it("uses a fully hardened path, because SLIP-0010 defines nothing else", () => {
+        const path = ROLE_CHAINS[SOLANA]!.path(0);
+        expect(path).toBe("m/44'/501'/1'/0'");
+        // Would throw on any unhardened segment. The failure has to be here rather than at an
+        // address nobody funded.
+        expect(() => parseHardenedPath(path)).not.toThrow();
+    });
+
+    it("keeps role keys off the wallet's own branch", () => {
+        // `1'` where the wallet uses `0'`, the same separation the EVM path makes.
+        expect(ROLE_CHAINS[SOLANA]!.path(0)).not.toContain("/501'/0'/");
+    });
+
+    it("refuses a raw key for a curve it cannot identify", () => {
+        // One key slot per role, not per role and chain — and 32 bytes is a valid seed on either
+        // curve, so guessing yields a key for an account nobody named.
+        expect(() =>
+            createRoleIdentity("relayer", 0, {
+                ...options,
+                supplied: { relayer: `0x${"11".repeat(32)}` },
+            }).on(SOLANA),
+        ).toThrow(/cannot tell which chain/);
     });
 });

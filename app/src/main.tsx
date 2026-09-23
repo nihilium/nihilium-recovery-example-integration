@@ -1,3 +1,6 @@
+// First, and deliberately: the Solana surface reads `Buffer` at module scope. See the file header.
+import "./bufferGlobal.js";
+
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";

@@ -51,6 +51,20 @@ describe("the copy line", () => {
         expect(violations, "plain functions, so a Vue or Node caller can use the same file").toEqual([]);
     });
 
+    it("imports no node builtin anywhere in the browser bundle", () => {
+        // `tsconfig.app.json` now includes the `node` types, because the Solana bindings are written
+        // against `Buffer` and there is no browser-typed alternative. That made `fs`, `path` and
+        // friends type-check inside app code, so the guard moved here — where it can check what is
+        // actually imported rather than what happens to be declared.
+        const all = readSources("src");
+        const violations = all.flatMap((file) =>
+            file.imports
+                .filter((specifier) => specifier.startsWith("node:"))
+                .map((specifier) => `${file.path} -> ${specifier}`),
+        );
+        expect(violations, "a node builtin in the browser bundle breaks at runtime, not at build").toEqual([]);
+    });
+
     it("keeps node-only SDK packages out of the browser bundle", () => {
         const all = readSources("src");
         const violations = all.flatMap((file) =>

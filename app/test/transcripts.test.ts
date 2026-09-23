@@ -41,24 +41,29 @@ describe("transcripts are per operation", () => {
     it("gives every channel exactly one renderer, and the right one", () => {
         expect(text("src/ui/SealDialog.tsx")).toContain("flow.state.logs.seal");
         expect(text("src/ui/RecoverDialog.tsx")).toContain("state.logs.recover");
-        expect(text("src/ui/RecoveryCard.tsx")).toContain("flow.state.logs.addChain");
+        // No `addChain` channel any more. Adding a chain is not an operation a user starts — it is
+        // the first half of protecting one — so its lines belong to the settlement transcript,
+        // beside the transaction they precede, rather than to a channel of their own.
+        expect(text("src/ui/WalletCard.tsx")).toContain("settlement.state.log");
     });
 
     it("never renders another operation's channel", () => {
         // The exact bug: the recover dialog showing what the seal did.
         expect(text("src/ui/RecoverDialog.tsx")).not.toContain("logs.seal");
-        expect(text("src/ui/RecoverDialog.tsx")).not.toContain("logs.addChain");
+
         expect(text("src/ui/SealDialog.tsx")).not.toContain("logs.recover");
-        expect(text("src/ui/SealDialog.tsx")).not.toContain("logs.addChain");
+
         expect(text("src/ui/RecoveryCard.tsx")).not.toContain("logs.seal");
         expect(text("src/ui/RecoveryCard.tsx")).not.toContain("logs.recover");
     });
 
     it("clears its own channel when an operation starts, and only its own", () => {
         const flow = text("src/demo/useRecoveryFlow.ts");
-        // Each operation resets the channel it is about to write. `addChain` never cleared anything
-        // before, which is how its lines survived into the next dialog.
-        for (const channel of ["seal: []", "addChain: []", "recover: []"]) {
+        // Each operation resets the channel it is about to write. `addChain` never cleared
+        // anything, which is how its lines survived into the next dialog — and it has no channel at
+        // all now, because adding a chain is the first half of protecting one rather than an
+        // operation a user starts.
+        for (const channel of ["seal: []", "recover: []"]) {
             expect(flow, `no reset for ${channel}`).toContain(channel);
         }
     });

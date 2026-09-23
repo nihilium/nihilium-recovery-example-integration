@@ -7,7 +7,8 @@
  */
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
-import { createRoleIdentity, DEMO_ROLE_MNEMONIC, type RoleIdentity } from "./roleIdentity.js";
+import { SOLANA_NAMESPACE } from "@nihilium/recovery-key-solana";
+import { createRoleIdentity, type RoleIdentity } from "./roleIdentity.js";
 
 loadDotenv();
 
@@ -25,9 +26,13 @@ function str(name: string, fallback: string): string {
 }
 
 /**
- * A value with no sensible default. Only the two shared credentials use this: they are capabilities
- * matched against the app's copy, so a fallback here would be a credential every clone of this
- * repository shares.
+ * A value with no sensible default.
+ *
+ * The two shared credentials are capabilities matched against the app's copy, so a fallback would be
+ * a credential every clone of this repository shares. `ROLE_MNEMONIC` is here for a sharper reason:
+ * it used to fall back to the published Hardhat phrase, whose addresses anyone can derive — and
+ * does. Role keys hold gas and veto authority. A demo that silently ran on a public phrase would be
+ * teaching that that is fine.
  */
 function required(name: string): string {
     const raw = process.env[name];
@@ -66,7 +71,20 @@ export interface Config {
      * what a real deployment does — see `roleIdentity.ts`.
      */
     roleMnemonic: string;
-    roles: { relayer: RoleIdentity; pause: RoleIdentity; resume: RoleIdentity[] };
+    roles: {
+        relayer: RoleIdentity;
+        pause: RoleIdentity;
+        resume: RoleIdentity[];
+        /**
+         * Vouches for module *code*, and for nothing else.
+         *
+         * A genuinely different party from the veto roles: those decide whether one recovery may
+         * proceed, this one decides which modules an account will install at all. Safe7579 routes
+         * every install through the ERC-7484 registry, so without an attester the account cannot
+         * install the recovery module — see `server/scripts/attest-modules.ts`.
+         */
+        attester: RoleIdentity;
+    };
     resumeThreshold: number;
     /** Seconds. Demo values: long enough to see, short enough to sit through. */
     timelockSeconds: number;
@@ -80,6 +98,78 @@ export interface Config {
     allowForcedPoll: boolean;
     /** Ceiling on `POST /api/roles/relayer/fund`, in wei. */
     fundMaxWei: bigint;
+    /**
+     * Solana, or `null` when `SOLANA_RPC_URL` is unset.
+     *
+     * `null` means the Solana routes are not mounted and the banner says the chain is not
+     * configured. It must never read as "fine": a relayer that is absent and a relayer that is
+     * funded look identical to a caller that does not check.
+     */
+    solana: SolanaConfig | null;
+}
+
+export interface SolanaConfig {
+    /** CAIP-2, from the SDK. `solana:devnet` is not a chain id. */
+    namespace: string;
+    /**
+     * The cluster whose tag the deployed program was built with.
+     *
+     * Folded into every digest the program checks, so a wrong value here produces signatures it
+     * rejects without saying why — which is why it is validated at boot rather than at the first
+     * transaction.
+     */
+    cluster: SolanaCluster;
+    rpcUrl: string;
+    /** Ceiling on `POST /api/roles/relayer/solana/fund`, in lamports. */
+    fundMaxLamports: bigint;
+    /**
+     * Ceiling on what one `/feepayer` co-sign may cost the relayer.
+     *
+     * Covers **rent as well as fees**: `create_vault` allocates PDAs whose rent-exemption deposit
+     * comes from the payer, so a limit tuned to transaction fees alone refuses every vault.
+     */
+    feePayerMaxLamports: bigint;
+}
+
+/**
+ * The clusters a role can act on. A string outside this set is a typo, not a network.
+ *
+ * **`localnet` is deliberately absent**, although the program is built for it. CAIP-2 for Solana is
+ * the truncated genesis hash, and a local validator's genesis is whatever `solana-test-validator`
+ * minted this morning — there is no fixed namespace to name it by. Since the namespace is a KDF
+ * input, a role on localnet would be a role whose keys nobody else can reproduce.
+ */
+const SOLANA_CLUSTERS = ["devnet", "mainnet-beta"] as const;
+export type SolanaCluster = (typeof SOLANA_CLUSTERS)[number];
+
+function solanaCluster(): SolanaCluster {
+    const declared = str("SOLANA_CLUSTER", "devnet");
+    if (!(SOLANA_CLUSTERS as readonly string[]).includes(declared)) {
+        throw new Error(
+            `SOLANA_CLUSTER="${declared}" is not a cluster this program is built for ` +
+                `(${SOLANA_CLUSTERS.join(", ")}). The cluster tag is folded into every digest, so a ` +
+                "wrong one yields signatures the program rejects without naming a cause.",
+        );
+    }
+    return declared as SolanaCluster;
+}
+
+function solanaConfig(): SolanaConfig | null {
+    const rpcUrl = str("SOLANA_RPC_URL", "");
+    if (rpcUrl === "") return null;
+    const cluster = solanaCluster();
+    return {
+        // Keyed by cluster rather than assumed: the namespace is a KDF input on both halves, and
+        // the app derives the same one from `SOLANA_NAMESPACE`.
+        namespace: SOLANA_NAMESPACE[cluster],
+        cluster,
+        rpcUrl,
+        // 1 SOL. Devnet is free and the faucet is unreliable, so this is generous on purpose.
+        fundMaxLamports: BigInt(str("DEMO_FUND_MAX_LAMPORTS", "1000000000")),
+        // 0.1 SOL. A vault's two PDAs cost well under this in rent; a transaction asking for more
+        // is not a vault.
+        feePayerMaxLamports: BigInt(str("DEMO_FEEPAYER_MAX_LAMPORTS", "100000000")),
+    };
 }
 
 const memberCount = resumeKeys.length > 0 ? resumeKeys.length : DEFAULT_RESUME_MEMBERS;
@@ -87,10 +177,11 @@ const memberCount = resumeKeys.length > 0 ? resumeKeys.length : DEFAULT_RESUME_M
 const chainId = num("CHAIN_ID", 11155111);
 
 const roleOptions = {
-    mnemonic: str("ROLE_MNEMONIC", DEMO_ROLE_MNEMONIC),
+    mnemonic: required("ROLE_MNEMONIC"),
     supplied: {
         relayer: process.env["RELAYER_PRIVATE_KEY"],
         pause: process.env["PAUSE_AUTHORITY_PRIVATE_KEY"],
+        attester: process.env["ATTESTER_PRIVATE_KEY"],
         ...Object.fromEntries(resumeKeys.map((key, i) => [`resume-${i + 1}`, key])),
     },
 };
@@ -106,6 +197,9 @@ export const config: Config = {
         // The index is the role's identity across every chain, so it is fixed here and nowhere else.
         relayer: createRoleIdentity("relayer", 0, roleOptions),
         pause: createRoleIdentity("pause", 1, roleOptions),
+        // Index 3, not 2: index 2 stays reserved for the abort authority it was assigned, because
+        // role indices are identities and recycling one silently re-points a funded address.
+        attester: createRoleIdentity("attester", 3, roleOptions),
         // No abort role. In this demo the abort authority is the wallet's own active EOA, signed in
         // the browser, so an owner who still holds their keys can kill a recovery started against
         // them. Index 2 stays unused rather than being recycled: role indices are identities.
@@ -127,4 +221,5 @@ export const config: Config = {
     watchtowerPollSeconds: num("WATCHTOWER_POLL_SECONDS", 15),
     allowForcedPoll: bool("DEMO_ALLOW_FORCED_POLL", true),
     fundMaxWei: BigInt(str("DEMO_FUND_MAX_WEI", "20000000000000000")),
+    solana: solanaConfig(),
 };

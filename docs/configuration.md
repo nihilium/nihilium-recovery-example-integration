@@ -101,11 +101,16 @@ Three things here are deliberate conveniences, and each is the wrong shape for p
    parties — that is the entire mechanism: no single compromise reaches two of them, and no veto key
    can move funds alone. Deriving them from one phrase throws that away while leaving everything
    looking correctly configured. The boot banner says so on every start.
-2. **The default phrase is public.** `ROLE_MNEMONIC` unset means the Hardhat/Anvil test mnemonic,
-   chosen precisely because nobody could mistake it for a wallet worth funding. Its addresses are
-   stable across restarts, so you fund them once — and strangers occasionally fund them too, which
-   is its own illustration.
-3. **The wallet's seed is in the source.** `app/src/demo/mnemonic.ts` holds it in plain text so the
+2. **`ROLE_MNEMONIC` is required, and generated per machine.** It used to fall back to the
+   Hardhat/Anvil phrase, chosen so nobody could mistake it for a wallet worth funding. That
+   backfired: those addresses are derivable by anyone, so strangers fund them, sweep them and
+   repurpose them — the Solana account that phrase derives is now somebody else's durable nonce
+   account, which is what made `create_vault` fail with `Transfer: 'from' must not carry data`. Role
+   keys hold gas and veto authority, so `npm run setup:env` now mints a phrase for this machine and
+   the server refuses to start without one. The addresses are still stable across restarts; you
+   still fund them once.
+3. **The wallet's seed is generated in the browser.** `app/src/demo/seeds.ts` mints one on first run
+   and keeps it in `localStorage` in the clear, so the
    demo can show it and lose it on command. A wallet keeps a seed in a device keystore and never
    lets it reach application code.
 
