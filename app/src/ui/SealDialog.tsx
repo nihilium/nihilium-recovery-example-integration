@@ -22,10 +22,15 @@ import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Transcript } from "./Transcript.js";
-import { Explain } from "./Explain.js";
 import { Notice } from "./Notice.js";
 import { downloadSeal } from "./downloadSeal.js";
-import { SealRow } from "./SealRow.js";
+import {
+    DEFAULT_TIMELOCK_SECONDS,
+    TIMELOCK_CHOICES,
+    timelockLabel,
+} from "../integration/recovery/settlement/timelock.js";
+import { displayRecordId } from "../integration/recovery/vaultRecords.js";
+import { AddressChip } from "./AddressChip.js";
 
 /**
  * Prefilled so the demo runs in one click, at *different domains* on purpose — three guardians at
@@ -81,6 +86,10 @@ export function SealDialog({
     // replacing it.
     const [local, setStep] = useState<Step>("method");
     const [preset, setPreset] = useState<GatePreset>(recommended);
+    // A replacement starts from the gate it replaces, so re-sealing never quietly shortens it.
+    const [timelock, setTimelock] = useState(
+        replacingNow?.timelockSeconds ?? DEFAULT_TIMELOCK_SECONDS,
+    );
     const [drafts, setDrafts] = useState<string[]>(() =>
         Array.from({ length: recommended.subjectCount }, (_, i) => SUGGESTED[i] ?? ""),
     );
@@ -124,11 +133,17 @@ export function SealDialog({
     }
 
     function start(): void {
-        if (replacing === null) void flow.seal(method.id, subjects, preset.threshold);
-        else void flow.reseal(method.id, subjects, preset.threshold);
+        if (replacing === null) void flow.seal(method.id, subjects, preset.threshold, timelock);
+        else void flow.reseal(method.id, subjects, preset.threshold, timelock);
     }
 
     const vault = flow.active;
+    const save = () => {
+        if (vault !== null && flow.state.sealFile !== null) {
+            downloadSeal(vault, flow.state.sealFile);
+            setDownloaded(true);
+        }
+    };
 
     return (
         <Dialog
@@ -141,8 +156,7 @@ export function SealDialog({
         >
             {replacing !== null && step !== "done" && (
                 <p className="muted">
-                    This buys a new set of seals. Your current gate keeps working until the new one is
-                    finished.
+                    Buys new seals. The current gate stays active until this finishes.
                 </p>
             )}
 
@@ -172,13 +186,6 @@ export function SealDialog({
                             </button>
                         ))}
                     </div>
-                    <Explain>
-                        <ul className="reasons">
-                            {method.limits.map((limit) => (
-                                <li key={limit}>{limit}</li>
-                            ))}
-                        </ul>
-                    </Explain>
                 </div>
             )}
 
@@ -198,14 +205,30 @@ export function SealDialog({
                                 onClick={() => choosePreset(option)}
                             >
                                 <span className="gate-option__title">{option.label}</span>
-                                {/* The number never renders alone. */}
-                                <span className="gate-option__cost">{option.survives}</span>
                             </button>
                         ))}
                     </div>
-                    <Explain>
-                        <p>{method.blurb}</p>
-                    </Explain>
+
+                    <div className="field">
+                        <span className="field__label">Timelock</span>
+                        <div className="gate-picker">
+                            {TIMELOCK_CHOICES.map((choice) => (
+                                <button
+                                    key={choice.seconds}
+                                    type="button"
+                                    className={
+                                        choice.seconds === timelock
+                                            ? "gate-option gate-option--active"
+                                            : "gate-option"
+                                    }
+                                    aria-pressed={choice.seconds === timelock}
+                                    onClick={() => setTimelock(choice.seconds)}
+                                >
+                                    <span className="gate-option__title">{choice.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -249,13 +272,6 @@ export function SealDialog({
                         </StatusMessage>
                     ))}
 
-                    <Explain>
-                        <p>
-                            Each address is checked against the live zkEmail DKIM registry as you type.
-                            A domain the registry cannot prove is a guardian whose share could never be
-                            opened, so it blocks the seal rather than failing later.
-                        </p>
-                    </Explain>
                 </div>
             )}
 
@@ -270,6 +286,7 @@ export function SealDialog({
                     </ul>
                     {/* The price, before the button that spends it. This reports, so it always shows. */}
                     <p>{method.cost.describe(preset)}</p>
+                    <p>Timelock: {timelockLabel(timelock)}.</p>
 
                     {flow.state.logs.seal.length > 0 && (
                         <Transcript
@@ -289,34 +306,25 @@ export function SealDialog({
                     <StatusMessage tone="success">
                         Sealed behind {preset.label.toLowerCase()}.
                     </StatusMessage>
-                    <p>Download the seal file now. It is the one artifact you have to keep.</p>
 
                     {/* Said here, at the moment it becomes true, rather than left for the card
                         behind this dialog. A replaced gate that never reaches the chain is a gate
                         the module does not honour — and the one it still honours is the old one. */}
                     {replacing !== null && (
                         <Notice tone="caution">
-                            The chain has not changed. It still honours the gate you just replaced,
-                            so until you update it the <strong>old</strong> guardians are the ones
-                            who can recover this account. The card behind this dialog has the button.
+                            The chains still use the <strong>old</strong> guardians. Close this and
+                            press Protect all chains.
                         </Notice>
                     )}
-                    {/* The full seal treatment lives here rather than on the card, because this is
-                        the moment the greyed “Mail me the seal” is worth reading — you have just
-                        made the thing, and mailing it to a guardian is the next idea you will have. */}
-                    <SealRow vault={vault} sealFile={flow.state.sealFile} />
+                    <div className="row">
+                        <span className="field__label">Record id</span>
+                        <AddressChip value={vault.recordId} display={displayRecordId(vault)} />
+                    </div>
                     <Transcript
                         lines={flow.state.logs.seal}
                         running={flow.state.phase === "sealing"}
                         label="Sealing"
                     />
-                    <Explain>
-                        <p>
-                            The vault exists; the chain has not been told about it. A recovery key no
-                            chain has registered protects nothing, and registering it is a separate,
-                            on-chain step that costs gas and is paid by the account.
-                        </p>
-                    </Explain>
                 </div>
             )}
         </Dialog>
@@ -362,19 +370,19 @@ export function SealDialog({
             );
         }
         return (
+            // One download action. Before it is pressed, it is the primary; after, "Done" is, and the
+            // download stays available once more in case the first one went nowhere.
             <DialogActions>
-                <Button
-                    variant="ghost"
-                    onClick={() => {
-                        if (vault !== null && flow.state.sealFile !== null) {
-                            downloadSeal(vault, flow.state.sealFile);
-                            setDownloaded(true);
-                        }
-                    }}
-                >
-                    Download the seal
+                <Button variant="ghost" onClick={downloaded ? save : onClose}>
+                    {downloaded ? "Download again" : "Close"}
                 </Button>
-                <Button onClick={onClose}>{downloaded ? "Done" : "Close without downloading"}</Button>
+                {downloaded ? (
+                    <Button onClick={onClose}>Done</Button>
+                ) : (
+                    <Button onClick={save} disabled={flow.state.sealFile === null}>
+                        Download the seal file
+                    </Button>
+                )}
             </DialogActions>
         );
     }

@@ -159,6 +159,32 @@ export interface RecoveredOwnerDeps {
  * The account object is built here rather than through `permissionless`'s Safe account, because
  * that one signs as a Safe *owner* — which after a recovery is still the key that was lost.
  */
+/**
+ * The account's nonce, **always** on the validator's key — whatever key the caller asks for.
+ *
+ * Safe7579 decides which validator checks a UserOp from the nonce key, so the key is the routing,
+ * not a counter. viem's `toSmartAccount` wraps this function and always supplies a key of its own —
+ * `parameters?.key ?? Date.now()` — before calling it, so an implementation that honoured the
+ * incoming key (as this one did) never saw `undefined` and never fell back to the validator's. The
+ * sweep then went out on a timestamp key, Safe7579 validated it against the Safe's *original* owner
+ * — the lost key — and the bundler answered `AA24 signature error` for a signature that was correct.
+ *
+ * Exported so the test can drive it through viem's real wrapper, which is where the key goes wrong.
+ */
+export function routedNonce(
+    publicClient: PublicClient,
+    account: Address,
+    nonceKey: bigint,
+): () => Promise<bigint> {
+    return () =>
+        publicClient.readContract({
+            address: entryPoint07Address,
+            abi: entryPoint07Abi,
+            functionName: "getNonce",
+            args: [account, nonceKey],
+        });
+}
+
 export async function createRecoveredOwnerClient(deps: RecoveredOwnerDeps) {
     const publicClient = createPublicClient({
         chain: sepolia,
@@ -194,14 +220,7 @@ export async function createRecoveredOwnerClient(deps: RecoveredOwnerDeps) {
             return encodeExecution(calls as readonly Call[]);
         },
 
-        async getNonce(parameters) {
-            return publicClient.readContract({
-                address: entryPoint07Address,
-                abi: entryPoint07Abi,
-                functionName: "getNonce",
-                args: [deps.account, parameters?.key ?? nonceKey],
-            });
-        },
+        getNonce: routedNonce(publicClient, deps.account, nonceKey),
 
         // 65 bytes of plausible ECDSA, so gas estimation charges for a real signature check.
         async getStubSignature() {

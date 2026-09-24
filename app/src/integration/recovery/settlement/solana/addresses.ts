@@ -69,10 +69,10 @@ export function programVaultId(): Uint8Array {
 export function programIdFor(cluster: string): PublicKey {
     const id = recoveryVaultProgramIds[cluster];
     if (id === undefined) {
+        // A guessed program id derives a vault address that holds nothing and never will.
         throw new Error(
-            `The recovery vault program is not deployed on "${cluster}". Known: ` +
-                `${Object.keys(recoveryVaultProgramIds).join(", ") || "none"}. A guessed program id ` +
-                "derives a vault address that holds nothing and never will.",
+            `Recovery vault program not deployed on "${cluster}". Known: ` +
+                `${Object.keys(recoveryVaultProgramIds).join(", ") || "none"}.`,
         );
     }
     return new PublicKey(id);

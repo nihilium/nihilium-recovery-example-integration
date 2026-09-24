@@ -23,20 +23,24 @@
  */
 import { useState } from "react";
 import type { VetoState } from "@nihilium/recovery-core";
+import {
+    timelockLabel,
+    type AttemptClock,
+} from "../integration/recovery/settlement/timelock.js";
 import type { DerivedAccount } from "../integration/chains/types.js";
 import type { GateDescription, MethodRegistry } from "../integration/conditions/types.js";
+import type { ProtectTarget } from "../integration/recovery/settlement/coverage.js";
 import type { SealFile } from "../integration/recovery/sealFile.js";
 import { displayRecordId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, Card, Heading, StatusMessage } from "./ds.js";
 import { AddressChip } from "./AddressChip.js";
 import { downloadSeal } from "./downloadSeal.js";
-import { Explain } from "./Explain.js";
 import { StageBadge, WatchBadge } from "./HealthBadge.js";
 import { stageOf, type RecoveryStage } from "./recoveryHealth.js";
 import { Notice } from "./Notice.js";
-import type { Protection } from "./protection.js";
 import { SealDialog } from "./SealDialog.js";
+import { Transcript } from "./Transcript.js";
 
 export function RecoveryCard({
     flow,
@@ -45,11 +49,15 @@ export function RecoveryCard({
     account,
     chainLabel,
     onchainAttempt,
+    onchainClock,
     watching,
-    protection,
-    protecting,
-    onProtect,
-    onNewSeed,
+    coverage,
+    onProtectAll,
+    onOpenHandover,
+    onAbort,
+    canAbort,
+    aborting,
+    abortLog,
 }: {
     flow: RecoveryFlow;
     /** Null when the live ceremony is not configured — there is deliberately no free fallback. */
@@ -60,12 +68,26 @@ export function RecoveryCard({
     chainLabel: string;
     /** The module's attempt state. `undefined` means the chain has not been read. */
     onchainAttempt: VetoState | null | undefined;
+    /** The same read's clock, so the badge applies the shared definition of ready. */
+    onchainClock: AttemptClock | null | undefined;
     /** Whether anything watches for a recovery this browser did not start. False everywhere today. */
     watching: boolean;
-    protection: Protection;
-    protecting: boolean;
-    onProtect: () => void;
-    onNewSeed: () => void;
+    /**
+     * Every chain at once, not the one on screen.
+     *
+     * This card is about the gate, and a gate covers chains the chain switcher is not showing. The
+     * per-chain protect button that used to live here could only ever offer the active chain, so a
+     * wallet with funds on two chains saw one button and no sign of the other.
+     */
+    coverage: { targets: readonly ProtectTarget[]; stale: readonly string[] };
+    onProtectAll: () => void;
+    /** Switches to the Handover view, where the funds actually move. */
+    onOpenHandover: () => void;
+    /** Kills every in-flight attempt on this vault. Terminal, and signed by the wallet's own key. */
+    onAbort: () => void;
+    canAbort: boolean;
+    aborting: boolean;
+    abortLog: readonly string[];
 }) {
     const [sealing, setSealing] = useState(false);
 
@@ -80,6 +102,7 @@ export function RecoveryCard({
         vault,
         attempt: onchainAttempt,
         opening: flow.state.phase === "recovering",
+        clock: onchainClock ?? null,
     });
 
     return (
@@ -95,7 +118,7 @@ export function RecoveryCard({
                         </StatusMessage>
                     ) : (
                         <>
-                            <p>Name a few people you trust. Any two of them can get you back in.</p>
+                            <p>Choose the guardians who can recover this account.</p>
                             <div className="row">
                                 <Button
                                     onClick={() => setSealing(true)}
@@ -116,14 +139,17 @@ export function RecoveryCard({
                     gate={gate}
                     stage={stage}
                     watching={watching}
-                    protection={protection}
-                    protecting={protecting}
-                    onProtect={onProtect}
+                    coverage={coverage}
+                    onProtectAll={onProtectAll}
                     sealFile={flow.state.sealFile}
                     chainLabel={chainLabel}
                     covers={flow.covers}
-                    onNewSeed={onNewSeed}
+                    onOpenHandover={onOpenHandover}
                     onReplace={() => setSealing(true)}
+                    onAbort={onAbort}
+                    canAbort={canAbort}
+                    aborting={aborting}
+                    abortLog={abortLog}
                 />
             )}
 
@@ -153,37 +179,59 @@ export function RecoveryCard({
 }
 
 /** The disclosure. Split out only so `RecoveryCard` keeps one return and one dialog position. */
+/** The stages an attempt can be killed from. Terminal ones have nothing left to refuse. */
+function isAbortable(stage: RecoveryStage | null): boolean {
+    return stage === "initiated" || stage === "paused" || stage === "executable";
+}
+
 function SealedBody({
     vault,
     gate,
     stage,
     watching,
-    protection,
-    protecting,
-    onProtect,
+    coverage,
+    onProtectAll,
     sealFile,
     chainLabel,
     covers,
-    onNewSeed,
+    onOpenHandover,
     onReplace,
+    onAbort,
+    canAbort,
+    aborting,
+    abortLog,
 }: {
     vault: VaultRecord;
     gate: GateDescription | null;
     stage: RecoveryStage | null;
     watching: boolean;
     /** Whether the chain honours *this* gate. `stale` means it honours the one before it. */
-    protection: Protection;
-    protecting: boolean;
-    onProtect: () => void;
+    /**
+     * Every chain at once, not the one on screen.
+     *
+     * This card is about the gate, and a gate covers chains the chain switcher is not showing. The
+     * per-chain protect button that used to live here could only ever offer the active chain, so a
+     * wallet with funds on two chains saw one button and no sign of the other.
+     */
+    coverage: { targets: readonly ProtectTarget[]; stale: readonly string[] };
+    onProtectAll: () => void;
     sealFile: SealFile | null;
     chainLabel: string;
     /** Whether the chain on screen is in this vault. */
     covers: boolean;
     /** This operation's transcript, and only this one's. */
     /** Mints a seed and switches to it — the only real answer to a spent vault. */
-    onNewSeed: () => void;
+    /** Switches to the Handover view, where the funds actually move. */
+    onOpenHandover: () => void;
     onReplace: () => void;
+    onAbort: () => void;
+    /** False when this browser no longer holds the seed the abort authority derives from. */
+    canAbort: boolean;
+    aborting: boolean;
+    /** This operation's lines, and only this one's — see `transcripts.test.ts`. */
+    abortLog: readonly string[];
 }) {
+    const abortable = isAbortable(stage);
     return (
         <details className="disclosure">
             <summary>
@@ -201,7 +249,6 @@ function SealedBody({
             </summary>
 
             <div className="stack disclosure__body">
-                {gate !== null && <p className="muted">{gate.survives}</p>}
 
                 <ul className="reasons">
                     {gate?.slots.map((slot) => (
@@ -213,9 +260,17 @@ function SealedBody({
 
                 {vault.spent !== null && (
                     <>
-                        <Notice tone="caution">{vault.spent.reason}</Notice>
+                        {/* Status, not the SDK's paragraph: that sentence is in the transcript of the
+                            recovery that wrote it. */}
+                        <Notice tone="caution">
+                            Vault spent · recovered {new Date(vault.spent.at).toLocaleDateString()}.
+                            Set up a new gate.
+                        </Notice>
+                        {/* Minting a seed is not moving anything, and this button used to do only
+                            that. The recovery it belongs to is already on-chain; what is left is
+                            waiting out the timelock and sweeping, which lives in the Handover view. */}
                         <div className="row">
-                            <Button onClick={onNewSeed}>Move to a new seed</Button>
+                            <Button onClick={onOpenHandover}>Go to the handover</Button>
                         </div>
                     </>
                 )}
@@ -225,29 +280,28 @@ function SealedBody({
                     registration is signed by the recovery key, pressing add on its own minted a key
                     that could never sign and was re-keyed a moment later. */}
 
-                {/* The gate changed and the chain did not. Loud, and on the card where the change
-                    was made — the action lives on the wallet too, but nobody looks there after
-                    replacing guardians. */}
-                {protection === "stale" && (
-                    <>
-                        <Notice tone="caution">
-                            The chain still points at the gate you replaced. Until this lands, the{" "}
-                            <strong>old guardians</strong> are the ones who can recover this account,
-                            and the new ones cannot — the module only honours the key it holds.
-                        </Notice>
-                        <div className="row">
-                            <Button onClick={onProtect} disabled={protecting}>
-                                {protecting ? "Sending…" : `Update ${chainLabel} to this gate`}
-                            </Button>
-                        </div>
-                    </>
+                {/* The gate changed and some chain did not. Loud, and on the card where the
+                    change was made — the action lives on the wallet too, but nobody looks there
+                    after replacing guardians. Named per chain, because "the chain" used to mean
+                    whichever one the switcher happened to be on. */}
+                {coverage.stale.length > 0 && (
+                    <Notice tone="caution">
+                        {coverage.stale.join(" and ")} still{" "}
+                        {coverage.stale.length === 1 ? "uses" : "use"} the old guardians. Protect all
+                        chains to switch.
+                    </Notice>
                 )}
 
-                {/* Sealed and never registered. Same asymmetry, different cause. */}
-                {protection === "sealed" && (
+                {/* One button for every chain, because the gate is one thing. A per-chain button
+                    here could only offer the chain on screen, which is how a funded chain stayed
+                    unprotected with nothing saying so. The dialog names what it will touch and what
+                    it will not, so it is worth opening even when there is nothing to do. */}
+                {vault.spent === null && (
                     <div className="row">
-                        <Button onClick={onProtect} disabled={protecting}>
-                            {protecting ? "Sending…" : `Protect ${chainLabel} with this gate`}
+                        <Button onClick={onProtectAll}>
+                            {coverage.targets.length > 0
+                                ? "Protect all chains with funds"
+                                : "Review chain coverage"}
                         </Button>
                     </div>
                 )}
@@ -255,6 +309,15 @@ function SealedBody({
                 {/* The vault's own handle. Kept on the card rather than only in the dialog you just
                     closed: it is how a record host is asked for this vault's ciphertext, and it is
                     the one part of a recovery that is safe to write down or email. */}
+                {/* What the next protect writes to each chain. Absent on vaults sealed before it
+                    could be chosen, which use the operator's default. */}
+                {vault.timelockSeconds !== undefined && (
+                    <div className="row">
+                        <span className="field__label">Timelock</span>
+                        <span>{timelockLabel(vault.timelockSeconds)}</span>
+                    </div>
+                )}
+
                 <div className="row">
                     <span className="field__label">Recovery id</span>
                     <AddressChip value={vault.recordId} display={displayRecordId(vault)} />
@@ -266,7 +329,7 @@ function SealedBody({
                         {sealFile === null ? (
                             // Reported, not hidden: this browser holds the seal but not the file,
                             // and only the copy on disk can recover elsewhere.
-                            <span>handed over at seal time</span>
+                            <span>not in this browser</span>
                         ) : (
                             // `TextLink` takes an href and nothing else, and this is an action
                             // rather than a destination — so a button wearing a link's clothes,
@@ -280,57 +343,28 @@ function SealedBody({
                             </button>
                         )}
                     </span>
+                    {/* Abort sits beside Replace because they are the two things an owner does to
+                        a gate they did not ask for: refuse this attempt, or change who can open the
+                        next one. Only while something is actually in flight — abort is terminal and
+                        has nothing to act on otherwise. */}
+                    {abortable && (
+                        <Button variant="ghost" onClick={onAbort} disabled={!canAbort || aborting}>
+                            {aborting
+                                ? "Aborting…"
+                                : canAbort
+                                  ? "Abort this recovery"
+                                  : "Abort needs this vault's own seed"}
+                        </Button>
+                    )}
                     <Button variant="ghost" onClick={onReplace}>
                         {vault.spent === null ? "Replace guardians" : "Set up a new gate"}
                     </Button>
                 </div>
 
-                <Explain>
-                    {vault.spent === null ? (
-                        <p>
-                            The two badges answer two questions. The stage is what the chain and this
-                            browser know about <em>this</em> account. The watch badge is whether
-                            anything would notice a recovery somebody else started — and nothing
-                            does, because the watchtower role is not built yet.
-                        </p>
-                    ) : (
-                        <p>
-                            A new gate on this account does not undo the recovery. It decrypted every
-                            record, so the root secret is known to whoever ran it, and a fresh set of
-                            guardians would be guarding a key someone else already has. The real
-                            answer is a new account, and moving what is in this one to it — the new
-                            gate below only stops this browser holding a spent seal.
-                        </p>
-                    )}
-                    <p>
-                        The recovery id is a meaningless lookup handle: it yields ciphertext and
-                        nothing else, so it is safe to email while the seal is not — that difference
-                        <em> is</em> the two-domain rule. You do not have to quote it to recover,
-                        because the seal already carries it; it is what you give a record host to
-                        fetch this vault&apos;s records when the device recovering has none of its
-                        own.
-                    </p>
-                    <p>
-                        Adding a chain costs nothing because the gate does not change: the same
-                        guardians open it, and the vault already published the key its records are
-                        encrypted to. The cost is on the other side — a recovery opens{" "}
-                        <em>every</em> chain in the vault, so each one added widens what a single
-                        ceremony exposes.
-                    </p>
-                    <p>
-                        Replacing guardians changes the vault, not the chain. The module has no
-                        setter — `onInstall` reverts once a config exists — so updating it is an
-                        uninstall and an install in one operation, and until it runs the account is
-                        still guarded by the key the old gate produced. The old records are
-                        append-only and were never deleted, so an old seal file plus the old
-                        guardians would still work.
-                    </p>
-                    <p>
-                        Replacing guardians buys a whole new set of seals under a new vault id. The
-                        old gate keeps working until the new one finishes, and is discarded only once
-                        it has.
-                    </p>
-                </Explain>
+                {abortLog.length > 0 && (
+                    <Transcript lines={abortLog} running={aborting} label="Aborting" />
+                )}
+
             </div>
         </details>
     );

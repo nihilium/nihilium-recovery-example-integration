@@ -45,11 +45,10 @@ export function detachedSignatures(
         throw new Error("An ed25519 instruction with no signatures authorises nothing.");
     }
     if (signers.length > MAX_RESUME_MEMBERS) {
+        // k signatures must fit Solana's 1232-byte transaction at ~110 bytes each; a larger quorum
+        // is a pause that could never be lifted.
         throw new Error(
-            `${signers.length} detached signatures exceed the program's cap of ` +
-                `${MAX_RESUME_MEMBERS}. k signatures have to fit inside Solana's 1232-byte ` +
-                "transaction limit at roughly 110 bytes each, so a larger quorum is a pause that " +
-                "could never be lifted.",
+            `${signers.length} signatures exceed the program's cap of ${MAX_RESUME_MEMBERS}.`,
         );
     }
     return signAll([...signers], digest);

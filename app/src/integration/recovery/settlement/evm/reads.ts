@@ -24,6 +24,7 @@ import { recoveryModuleAbi, VetoStateOrdinal } from "@nihilium/recovery-onchain-
 import type { VetoState } from "@nihilium/recovery-core";
 import { fromSolidityVetoConfig, type SolidityVetoConfig } from "./vetoConfig.js";
 import type { VetoConfig } from "@nihilium/recovery-core";
+import type { AttemptClock } from "../timelock.js";
 
 export interface SolidityIntent {
     account: Address;
@@ -54,6 +55,15 @@ export interface ModuleReader {
     isInitialized(account: Address): Promise<boolean>;
     configOf(account: Address): Promise<AccountConfig>;
     attemptOf(account: Address): Promise<AttemptSnapshot>;
+    /**
+     * The effective state **now**, with the clock projected forward.
+     *
+     * Not the same as `attemptOf().state`, and the difference is the one that matters: a pause whose
+     * ceiling has expired lifts with no transaction from anyone, so the stored state still reads
+     * `PAUSED` while the module would already accept an execute. Reading the stored one renders a
+     * recovery as blocked when it is running.
+     */
+    stateOf(account: Address): Promise<VetoState | null>;
     /** Read, never computed. See the header. */
     hashIntent(intent: SolidityIntent): Promise<Hex>;
     /** Read, never computed. See the header. */
@@ -80,9 +90,9 @@ export function toVetoState(ordinal: number): VetoState | null {
         case VetoStateOrdinal.ABORTED:
             return "ABORTED";
         default:
+            // Treated as unsafe rather than mapped to the nearest known state.
             throw new Error(
-                `The module reported veto state ordinal ${ordinal}, which this build does not know. ` +
-                    "Treat an unknown state as unsafe rather than mapping it to the nearest known one.",
+                `Unknown veto state ${ordinal}: this build does not know it.`,
             );
     }
 }
@@ -135,6 +145,10 @@ export function createModuleReader(
             };
         },
 
+        async stateOf(account) {
+            return toVetoState(Number(await module.read.stateOf([account])));
+        },
+
         async hashIntent(intent) {
             return module.read.hashIntent([intent]) as Promise<Hex>;
         },
@@ -145,6 +159,48 @@ export function createModuleReader(
 
         async balanceOf(address) {
             return client.getBalance({ address });
+        },
+    };
+}
+
+/**
+ * Both halves of "what is happening to this account's recovery", read together.
+ *
+ * Together, because they are two different questions and mixing them is the failure `timelock.ts`
+ * documents: `stateOf` is the module's word for what it would accept *now*, and the attempt's own
+ * state is the one its counters belong to. A caller that read one and reused it for the other would
+ * drop an elapsed pause ceiling.
+ *
+ * `configOf` comes along because the clock is meaningless without `timelockSeconds` — the module
+ * stores an accrual counter, never a deadline.
+ */
+export interface AttemptClockRead {
+    /** What to render, and what gates an execute. `null` when there is no attempt. */
+    projected: VetoState | null;
+    /** The consistent snapshot `projectTimelock` needs. `null` when the module is not installed. */
+    clock: AttemptClock | null;
+}
+
+export async function readAttemptClock(
+    reader: ModuleReader,
+    account: Address,
+): Promise<AttemptClockRead> {
+    const [config, attempt, projected] = await Promise.all([
+        reader.configOf(account),
+        reader.attemptOf(account),
+        reader.stateOf(account),
+    ]);
+    return {
+        projected,
+        clock: {
+            // `attemptOf` runs `project()` first, so this state, these counters and this checkpoint
+            // are all current as of the same block. Passed through as one piece, never reassembled.
+            state: attempt.state,
+            accruedSeconds: Number(attempt.accruedSeconds),
+            pausedSeconds: Number(attempt.pausedSeconds),
+            checkpointSeconds: Number(attempt.checkpointTime),
+            timelockSeconds: config.veto.timelockSeconds,
+            pauseCeilingSeconds: config.veto.pauseCeilingSeconds,
         },
     };
 }

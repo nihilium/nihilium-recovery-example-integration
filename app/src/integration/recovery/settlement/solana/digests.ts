@@ -32,10 +32,11 @@ const KNOWN: readonly ClusterName[] = ["localnet", "devnet", "mainnet-beta"];
 
 export function clusterFromNamespace(namespace: string, declared: string): ClusterName {
     if (!KNOWN.includes(declared as ClusterName)) {
+        // The cluster tag is folded into every digest; a wrong one yields signatures the program
+        // rejects without saying why.
         throw new Error(
-            `"${declared}" is not a cluster this program is built for (${KNOWN.join(", ")}). The ` +
-                `cluster tag is folded into every digest, so a wrong one yields signatures the ` +
-                `program rejects without saying why. Namespace was ${namespace}.`,
+            `"${declared}" is not a cluster this program supports (${KNOWN.join(", ")}). ` +
+            `Namespace: ${namespace}.`,
         );
     }
     return declared as ClusterName;

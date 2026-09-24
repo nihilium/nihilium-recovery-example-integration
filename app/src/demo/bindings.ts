@@ -20,6 +20,7 @@ import type { ChainRegistry } from "../integration/chains/types.js";
 import { createMethodRegistry } from "../integration/conditions/registry.js";
 import type { MethodRegistry } from "../integration/conditions/types.js";
 import { VaultRecordStore } from "../integration/recovery/vaultRecords.js";
+import { HandoverStore } from "../integration/recovery/handovers.js";
 import type { VaultDeps } from "../integration/recovery/vault.js";
 import { IdbSealedDataStore } from "../integration/storage/dataStore.js";
 import { IdbSealStore } from "../integration/storage/sealStore.js";
@@ -32,6 +33,8 @@ export interface AppBindings {
     methods: MethodRegistry | null;
     methodError: string | null;
     vaults: VaultRecordStore;
+    /** Recoveries submitted on-chain and waiting out a timelock. Holds intents, never keys. */
+    handovers: HandoverStore;
     stores: VaultDeps;
 }
 
@@ -41,6 +44,7 @@ export function createAppBindings(): AppBindings {
     const sealStore = new IdbSealStore();
     const dataStore = new IdbSealedDataStore();
     const vaults = new VaultRecordStore();
+    const handovers = new HandoverStore();
 
     let methods: MethodRegistry | null = null;
     let methodError: string | null = null;
@@ -73,6 +77,7 @@ export function createAppBindings(): AppBindings {
         methods,
         methodError,
         vaults,
+        handovers,
         stores: { sealStore, dataStore, vaults },
     };
 }

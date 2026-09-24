@@ -62,9 +62,9 @@ export function buildIntent(params: BuildIntentParams): {
     const nowSeconds = Math.floor((params.now?.() ?? Date.now()) / 1000);
     const expiry = nowSeconds + (params.ttlSeconds ?? DEFAULT_INTENT_TTL_SECONDS);
     if (!Number.isInteger(expiry) || expiry <= nowSeconds || expiry > MAX_UINT48) {
+        // A silently truncated expiry produces a signature the module treats as long expired.
         throw new Error(
-            `An intent expiry of ${expiry} does not fit uint48, or does not lie in the future. A ` +
-                "silently truncated expiry produces a signature the module treats as long expired.",
+            `Intent expiry ${expiry} does not fit uint48 or is not in the future.`,
         );
     }
 

@@ -34,7 +34,13 @@ export type IconName =
 
 export interface ChainModule {
     readonly id: string;
+    /** The chain, as a user names it: "Ethereum", not "EVM · Sepolia". */
     readonly label: string;
+    /**
+     * Which network of that chain this build talks to — "Sepolia", "Devnet". Kept apart from `label`
+     * so the page can say *Ethereum* everywhere and name the testnet once, where networks are shown.
+     */
+    readonly network: string;
     readonly icon: IconName;
 
     /**
@@ -58,6 +64,18 @@ export interface ChainModule {
     deriveAccounts(seed: Uint8Array): Promise<DerivedAccount[]>;
 
     formatAddress(address: string, style?: "full" | "short"): string;
+
+    /**
+     * This chain's address for a recovered public key, or `null` where the concept does not apply.
+     *
+     * On the chain module because only it knows: the curve does not determine the encoding. Zcash
+     * and EVM are both secp256k1 and share no address format, so branching on `algorithm` would
+     * produce a confident, wrong string rather than an error.
+     *
+     * A recovery hands back bytes. Without this, a wallet can show the user a public key and nothing
+     * they can look up — which is what `RecoveredKey` did, with `address` hardcoded to `null`.
+     */
+    addressOfPublicKey(publicKey: PublicKey): string | null;
 
     /**
      * Whether this chain would accept `value` as a destination.

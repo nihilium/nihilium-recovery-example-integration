@@ -19,6 +19,7 @@ import {
     type KeyAdapter,
     type ChainContext,
     type KeyAlgorithm,
+    type PublicKey,
     type RecordId,
     type RecoveredAuthority,
     type SealPublicComponent,
@@ -47,6 +48,19 @@ export interface VaultChainRecord {
     writeMs: number;
     /** Null until the chain has registered this key. Sealed is not the same as protected. */
     settlement: { address: string; txHash: string | null; registeredAt: number } | null;
+    /**
+     * The wallet key behind this account, where the account is not that key.
+     *
+     * Needed to recover a vault whose seed this browser no longer holds — the case recovery exists
+     * for. On EVM nothing reads it: `accountId` is the Safe and the module is driven by the
+     * recovered key's signature. On Solana `accountId` is a PDA seeded by its **creator**, which is
+     * not derivable from the PDA, so without this the addresses cannot be rebuilt and the on-chain
+     * handover has nothing to act on.
+     *
+     * Optional because records written before this existed do not carry it. A vault missing it is
+     * still fully recoverable off-chain; it is the on-chain step that cannot run.
+     */
+    signerAddress?: string;
 }
 
 export interface VaultRecord {
@@ -80,6 +94,14 @@ export interface VaultRecord {
     chains: VaultChainRecord[];
     /** Set once a recovery has opened it. A spent vault is never silently reused. */
     spent: { at: number; reason: string } | null;
+    /**
+     * How long a recovery must wait before it can execute, chosen at seal time and written into
+     * each chain's veto config when that chain is protected.
+     *
+     * Absent on vaults sealed before it could be chosen; those use the operator's default. The chain
+     * is still the authority on what is actually installed — this is what the *next* protect writes.
+     */
+    timelockSeconds?: number;
 }
 
 export class VaultRecordStore {
@@ -184,13 +206,20 @@ export class RecoveredKeyMismatchError extends Error {
  * because the curve belongs to the chain: deriving an ed25519 point from secp256k1 bytes would not
  * fail, it would produce a different key that matches nothing.
  */
+export function recoveredPublicKey(
+    authority: RecoveredAuthority,
+    keyAdapter: KeyAdapter,
+): PublicKey {
+    return authority.kind === "capability"
+        ? authority.capability.publicKey
+        : keyAdapter.publicKeyFor(authority.material);
+}
+
 export function recoveredPublicKeyHex(
     authority: RecoveredAuthority,
     keyAdapter: KeyAdapter,
 ): string {
-    return authority.kind === "capability"
-        ? bytesToHex(authority.capability.publicKey.bytes)
-        : bytesToHex(keyAdapter.publicKeyFor(authority.material).bytes);
+    return bytesToHex(recoveredPublicKey(authority, keyAdapter).bytes);
 }
 
 /**

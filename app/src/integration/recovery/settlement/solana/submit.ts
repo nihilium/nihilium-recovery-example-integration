@@ -151,8 +151,7 @@ async function fetchConfig(route: string): Promise<RelayerConfig> {
         // A 404 here is the honest answer when the server runs without `SOLANA_RPC_URL`: the routes
         // are not mounted rather than stubbed, so this says so instead of reporting a send failure.
         throw new Error(
-            "The Solana relayer is not reachable, so nothing can be paid for on your behalf. " +
-                "Start the server with `npm run dev:server`, and check SOLANA_RPC_URL is set.",
+            "Solana relayer not reachable. Run `npm run dev:server` with SOLANA_RPC_URL set.",
         );
     }
     return (await response.json()) as RelayerConfig;

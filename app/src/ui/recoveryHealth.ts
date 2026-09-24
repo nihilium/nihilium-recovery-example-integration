@@ -23,6 +23,11 @@
  */
 import type { VetoState } from "@nihilium/recovery-core";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import {
+    hasMatured,
+    nowSeconds,
+    type AttemptClock,
+} from "../integration/recovery/settlement/timelock.js";
 
 export type RecoveryStage =
     /** Nothing has happened. */
@@ -44,14 +49,28 @@ export interface StageInputs {
     attempt: VetoState | null | undefined;
     /** True while this browser's own ceremony is running. */
     opening: boolean;
+    /**
+     * The chain's clock, when read. Optional so a caller with no clock still gets the state word —
+     * but a caller that has one must pass it, or a matured Solana attempt reads as "initiated".
+     */
+    clock?: AttemptClock | null;
+    /** Unix seconds; defaults to now. A parameter so tests do not depend on the wall clock. */
+    now?: number;
 }
 
-export function stageOf({ vault, attempt, opening }: StageInputs): RecoveryStage | null {
+export function stageOf({ vault, attempt, opening, clock, now }: StageInputs): RecoveryStage | null {
     if (vault === null) return null;
     if (opening) return "opening";
 
     // The chain wins wherever it has something to say: it is the only party that can report an
     // attempt this browser did not start.
+    // Before the switch: a matured attempt is `executable` whichever word the chain uses for it.
+    // Solana keeps answering `INITIATED` after its timelock runs out, and reading only the state word
+    // put "initiated" on this badge while the timelock box beside it said ready.
+    if (clock !== undefined && hasMatured(attempt ?? null, clock, now ?? nowSeconds())) {
+        return "executable";
+    }
+
     switch (attempt) {
         case "INITIATED":
             return "initiated";
@@ -80,24 +99,12 @@ export const STAGE_LABELS: Record<RecoveryStage, string> = {
     initiated: "Submitted · timelock running",
     paused: "Paused · clock stopped",
     executable: "Timelock matured · ready",
-    executed: "Control moved",
+    // Red, and from the viewer's side: this card belongs to the seed that lost the account. It does
+    // not say the old key is locked out — on EVM recovery adds a validator and removes nothing.
+    executed: "Recovered by another seed",
     aborted: "Aborted",
 };
 
-export const STAGE_DETAIL: Record<RecoveryStage, string> = {
-    none: "No recovery has been started from this browser, and the chain reports no attempt.",
-    opening: "The guardians are being asked now.",
-    "vault-open":
-        "The vault was opened and a recovery key exists, but nothing has been submitted to the " +
-        "module. This account is still controlled by whoever controlled it before — recovering the " +
-        "key and taking the account back are two different steps, and only the first has happened.",
-    initiated:
-        "An intent is on-chain and the timelock is counting. It can still be paused or aborted.",
-    paused: "The pause authority stopped the clock. It lifts at the ceiling with no transaction.",
-    executable: "The timelock has matured. Executing now moves control to the named target.",
-    executed: "The validator changed and the epoch bumped. This is the only state that means done.",
-    aborted: "The abort key killed this attempt. It is terminal; a new recovery must start over.",
-};
 
 /** Which stages are a completed, terminal outcome — for styling, and for nothing else. */
 export function isTerminalStage(stage: RecoveryStage): boolean {

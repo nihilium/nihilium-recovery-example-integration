@@ -38,13 +38,19 @@ import { recoveryModuleAbi } from "@nihilium/recovery-onchain-evm";
 export interface VetoDeps {
     publicClient: PublicClient;
     moduleAddress: Address;
-    /** Pre-bound to the pause key, and only the pause key. */
-    pause: { client: WalletClient; address: Address };
+    /**
+     * Pre-bound to the pause key, and only the pause key.
+     *
+     * The **account object**, never the address: viem signs an `Account` locally, and treats a bare
+     * address as a JSON-RPC account it asks the node to sign for — which a public endpoint refuses
+     * with "unknown account", naming the RPC method rather than the cause.
+     */
+    pause: { client: WalletClient; account: Account };
     /**
      * The resume quorum, in order. Signing happens with these; submitting happens with whichever
      * wallet the route is given, because `resume` checks the signatures, not the sender.
      */
-    resume: { signers: Account[]; submitter: { client: WalletClient; address: Address } };
+    resume: { signers: Account[]; submitter: { client: WalletClient; account: Account } };
     resumeThreshold: number;
     log?: (message: string) => void;
 }
@@ -65,7 +71,7 @@ export function createVetoRouter(deps: VetoDeps): Router {
                 abi: recoveryModuleAbi,
                 functionName: "pause",
                 args: [getAddress(account)],
-                account: deps.pause.address,
+                account: deps.pause.account,
                 chain: deps.pause.client.chain,
             });
             await deps.publicClient.waitForTransactionReceipt({ hash });
@@ -114,7 +120,7 @@ export function createVetoRouter(deps: VetoDeps): Router {
                 abi: recoveryModuleAbi,
                 functionName: "resume",
                 args: [target, quorum.map((s) => getAddress(s.address)), signatures],
-                account: deps.resume.submitter.address,
+                account: deps.resume.submitter.account,
                 chain: deps.resume.submitter.client.chain,
             });
             await deps.publicClient.waitForTransactionReceipt({ hash });
@@ -132,9 +138,24 @@ export function createVetoRouter(deps: VetoDeps): Router {
     return router;
 }
 
+/**
+ * What actually went wrong, in enough detail to act on.
+ *
+ * `shortMessage` alone is how a relayer failure reaches the screen as "Invalid parameters were
+ * provided to the RPC method" — true, unhelpful, and naming neither the method nor the parameter.
+ * viem puts that in `metaMessages` and `details`, so they go too: an error a user can only
+ * screenshot is an error nobody can fix.
+ */
 function reasonOf(error: unknown): string {
-    if (typeof error === "object" && error !== null && "shortMessage" in error) {
-        return String((error as { shortMessage: unknown }).shortMessage);
+    if (typeof error !== "object" || error === null) {
+        return error instanceof Error ? error.message : String(error);
     }
-    return error instanceof Error ? error.message : String(error);
+    const viem = error as { shortMessage?: unknown; metaMessages?: unknown; details?: unknown };
+    if (viem.shortMessage === undefined) {
+        return error instanceof Error ? error.message : String(error);
+    }
+    const parts = [String(viem.shortMessage)];
+    if (Array.isArray(viem.metaMessages)) parts.push(...viem.metaMessages.map(String));
+    if (typeof viem.details === "string" && viem.details.length > 0) parts.push(viem.details);
+    return parts.join(" | ");
 }

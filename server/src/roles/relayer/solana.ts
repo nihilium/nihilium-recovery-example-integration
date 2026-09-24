@@ -115,10 +115,10 @@ export function createSolanaRelayerRouter(deps: SolanaRelayerDeps): Router {
     // The IDL carries the address of the build it came from. Checked rather than trusted: a
     // mismatch means this client would talk to a program the digests were never built for.
     if (recoveryVaultIdl.address !== deps.programId.toBase58()) {
+        // Otherwise every digest is computed against the wrong program.
         throw new Error(
-            `The bundled IDL is for program ${recoveryVaultIdl.address}, but this server is ` +
-                `configured for ${deps.programId.toBase58()}. One is from a different build, and ` +
-                "every digest would be computed against the wrong program.",
+            `Bundled IDL is for ${recoveryVaultIdl.address}; this server is configured for ` +
+                `${deps.programId.toBase58()}. Rebuild so they match.`,
         );
     }
     const program = new Program(recoveryVaultIdl as Idl, provider) as ProgramType<NihiliumRecoveryVault>;
@@ -386,7 +386,13 @@ function toIntent(payload: SolanaIntentPayload): { arg: IntentArg<BNType>; forDi
     return {
         arg: {
             newOwner,
-            newOwnerConfig: config,
+            // `Buffer`, not `Uint8Array`. Anchor encodes `bytes` through buffer-layout's `Blob`,
+            // which type-checks its source and refuses anything else — and refuses it with
+            // "Blob.encode[data] requires (length 0) Buffer as src", which names the length rather
+            // than the type and so reads as "the value is empty" when the value is the wrong class.
+            // Empty is fine here: an EVM intent carries validator init data, a Solana one carries
+            // nothing, and the field exists so both chains share one digest shape.
+            newOwnerConfig: Buffer.from(config),
             epoch: new BN(payload.epoch),
             nonce: new BN(payload.nonce),
             expiry: new BN(payload.expiry),

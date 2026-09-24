@@ -24,9 +24,9 @@ const P2PKH_PREFIX: Record<ZcashNetwork, readonly [number, number]> = {
 
 export function toZcashTransparentAddress(pub: PublicKey, network: ZcashNetwork): string {
     if (pub.algorithm !== "secp256k1") {
+        // Shielded addresses use a different curve entirely — see keyAdapter.ts.
         throw new Error(
-            `A Zcash transparent address needs a secp256k1 key; got ${pub.algorithm}. ` +
-                "Shielded addresses use a different curve entirely — see keyAdapter.ts.",
+            `A Zcash transparent address needs a secp256k1 key; got ${pub.algorithm}.`,
         );
     }
     if (pub.bytes.length !== 33) {

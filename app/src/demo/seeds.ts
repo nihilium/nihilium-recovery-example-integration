@@ -32,10 +32,11 @@ export interface SeedEntry {
     /** Unix ms. The built-in seed reports 0 so it always sorts first. */
     addedAt: number;
     /**
-     * Always `generated`. Kept as a field rather than dropped because the distinction mattered once
-     * and may again — a wallet that imported a phrase would want to say so.
+     * Where the phrase came from. Shown, because it changes what removing it means: a generated
+     * seed exists only in this browser, so removing it destroys the only copy — which is the loss
+     * this demo stages. An imported one presumably exists wherever it was imported from.
      */
-    origin: "generated";
+    origin: "generated" | "imported";
 }
 
 export interface SeedBook {
@@ -50,10 +51,34 @@ export interface SeedBook {
  * with had been repurposed by somebody else on devnet — which is what a published key invites — so
  * the wallet makes its own and keeps it. First run mints one; every run after that reads it back.
  */
-function mint(index: number): SeedEntry {
+/**
+ * The next free `Seed N`, from the numbers already taken rather than from the count.
+ *
+ * Numbering by `seeds.length + 1` is wrong the moment anything is removed: delete "Seed 1" and the
+ * count is 1 again, so the next seed is also called "Seed 2" — and the one after that, and the one
+ * after that. Removing a seed is the loss this demo *stages*, so it happens constantly, and the
+ * result was a wallet where every seed had the same name and the switcher was unusable.
+ *
+ * Reads the numbers out of the labels, so a book that already contains duplicates still gets a free
+ * one rather than piling onto the collision.
+ */
+function highestNumber(seeds: readonly SeedEntry[]): number {
+    let highest = 0;
+    for (const seed of seeds) {
+        const match = /^Seed (\d+)$/.exec(seed.label);
+        if (match !== null) highest = Math.max(highest, Number(match[1]));
+    }
+    return highest;
+}
+
+function nextLabel(seeds: readonly SeedEntry[]): string {
+    return `Seed ${highestNumber(seeds) + 1}`;
+}
+
+function mint(seeds: readonly SeedEntry[]): SeedEntry {
     return {
         mnemonic: newMnemonic(),
-        label: index === 0 ? "Seed 1" : `Seed ${index + 1}`,
+        label: nextLabel(seeds),
         addedAt: Date.now(),
         origin: "generated",
     };
@@ -61,7 +86,7 @@ function mint(index: number): SeedEntry {
 
 /** The book a first run gets: exactly one seed, generated here, persisted immediately. */
 function fresh(): SeedBook {
-    const seed = mint(0);
+    const seed = mint([]);
     return write({ seeds: [seed], active: seed.mnemonic });
 }
 
@@ -80,10 +105,31 @@ function read(): SeedBook {
         const parsed = JSON.parse(raw) as Partial<SeedBook>;
         // Anything that is not a valid BIP-39 phrase is dropped rather than kept as an undrivable
         // account — a truncated or tampered list must not produce a wallet that cannot derive.
-        const seeds = (parsed.seeds ?? []).filter(
-            (entry): entry is SeedEntry =>
-                typeof entry?.mnemonic === "string" && isValidMnemonic(entry.mnemonic),
-        );
+        const seeds = (parsed.seeds ?? [])
+            .filter(
+                (entry): entry is SeedEntry =>
+                    typeof entry?.mnemonic === "string" && isValidMnemonic(entry.mnemonic),
+            )
+            // Books written before imports existed carry no `origin`. Defaulting to `generated` is
+            // the safe direction: it makes the removal warning say the copy is the only one.
+            .map((entry) => ({ ...entry, origin: entry.origin === "imported" ? "imported" as const : "generated" as const }));
+
+        // Repair duplicates already on disk. Numbering used to come from the seed count, so any
+        // wallet that removed a seed and added another has several called the same thing — and a
+        // switcher whose rows all read "Seed 2" cannot be used. The first holder of a name keeps
+        // it; later ones move to the next free number, so nothing renames under a user who never
+        // hit the bug.
+        const taken = new Set<string>();
+        let highest = highestNumber(seeds);
+        for (const entry of seeds) {
+            if (!taken.has(entry.label)) {
+                taken.add(entry.label);
+                continue;
+            }
+            highest += 1;
+            entry.label = `Seed ${highest}`;
+            taken.add(entry.label);
+        }
         if (seeds.length === 0) return fresh();
 
         const active =
@@ -117,7 +163,7 @@ export function loadSeedBook(): SeedBook {
  * history rather than a reset.
  */
 export function addGeneratedSeed(book: SeedBook): SeedBook {
-    const entry = mint(book.seeds.length);
+    const entry = mint(book.seeds);
     return write({ seeds: [...book.seeds, entry], active: entry.mnemonic });
 }
 
@@ -143,6 +189,55 @@ export function removeSeed(book: SeedBook, mnemonic: string): SeedBook {
     // pointing at a phrase the book no longer holds.
     const active = book.active === mnemonic ? seeds[0]!.mnemonic : book.active;
     return write({ seeds, active });
+}
+
+export class SeedImportError extends Error {
+    override readonly name = "SeedImportError";
+}
+
+/**
+ * Take a phrase the user typed.
+ *
+ * Three refusals, and the third is the one worth reading:
+ *
+ * - not a valid BIP-39 phrase — an undrivable account is worse than no account;
+ * - already in the book — two rows for one wallet, where switching between them does nothing;
+ * - **a fingerprint collision.** `walletId` is `seedFingerprint(mnemonic)` (see `App.tsx`), which is
+ *   the first and last word — and that is what `VaultRecord.walletId` stores. Two phrases sharing
+ *   both words would therefore share a wallet identity, and each would show the other's vaults as
+ *   its own. That is silent and unrecoverable-looking, so it is refused here.
+ *
+ * The real fix is a `walletId` derived by hash rather than by first-and-last word. It is not done
+ * because changing it invalidates every `walletId` already in IndexedDB, which costs a `DB_VERSION`
+ * bump and every existing vault with it — a price worth paying deliberately, not as a side effect
+ * of adding an import box.
+ */
+export function addImportedSeed(book: SeedBook, phrase: string): SeedBook {
+    const mnemonic = phrase.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!isValidMnemonic(mnemonic)) {
+                // A phrase that fails here would still derive accounts — just not the ones meant.
+        throw new SeedImportError("Not a valid BIP-39 phrase. Check the word count and spelling.");
+    }
+    if (book.seeds.some((seed) => seed.mnemonic === mnemonic)) {
+        throw new SeedImportError("This phrase is already in the list.");
+    }
+    const fingerprint = seedFingerprint(mnemonic);
+    const clash = book.seeds.find((seed) => seedFingerprint(seed.mnemonic) === fingerprint);
+    if (clash !== undefined) {
+                // This demo identifies a wallet by its first and last word, so the two would share every vault.
+        throw new SeedImportError(
+            `Starts and ends with the same words as "${clash.label}" (${fingerprint}). ` +
+                "Use a different phrase.",
+        );
+    }
+
+    const entry: SeedEntry = {
+        mnemonic,
+        label: nextLabel(book.seeds),
+        addedAt: Date.now(),
+        origin: "imported",
+    };
+    return write({ seeds: [...book.seeds, entry], active: entry.mnemonic });
 }
 
 export function selectSeed(book: SeedBook, mnemonic: string): SeedBook {

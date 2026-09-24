@@ -45,7 +45,12 @@
  * Dropped rather than migrated, as at v2 and v3: there is no rewriting that makes those rows true,
  * and keeping them means a recovery derived against an address nothing honours.
  */
-export const DB_VERSION = 4;
+/**
+ * **v5 adds `handovers` and drops nothing.** Unlike v2–v4, this is a purely additive upgrade: the
+ * clearing below is gated on `oldVersion < 4`, and every store is created only when absent. A
+ * recovery in flight survives it, which matters because that is exactly what the new store holds.
+ */
+export const DB_VERSION = 5;
 
 /** Every store this app keeps. Declared in one place so an upgrade is a diff, not an archaeology. */
 export const STORES = {
@@ -57,6 +62,17 @@ export const STORES = {
     vaults: "vaults",
     /** Simulated settlement attempts, so a demo veto survives a reload. */
     simAttempts: "sim-attempts",
+    /**
+     * Recoveries submitted on-chain and waiting out a timelock — see `recovery/handovers.ts`.
+     *
+     * Holds **signed intents, never keys**. A timelock can outlast a browser session by days, and
+     * the recovered key cannot be kept for it: writing bearer material to disk is the thing §12
+     * exists to prevent, and a vault is spent once opened, so losing the key means losing the
+     * recovery with no way to redo it short of another paid ceremony. Signing every chain's intent
+     * at recovery time and storing *those* gets the wait for free — an intent authorises one
+     * handover to one named owner and nothing else.
+     */
+    handovers: "handovers",
 } as const;
 
 export interface IdbOptions {
@@ -96,6 +112,12 @@ function open(dbName: string): Promise<IDBDatabase> {
             }
             if (!db.objectStoreNames.contains(STORES.vaults)) {
                 db.createObjectStore(STORES.vaults, { keyPath: "vaultId" });
+            }
+            if (!db.objectStoreNames.contains(STORES.handovers)) {
+                // `${vaultId}:${chainId}` — one handover per chain per vault, replaced in place as
+                // it advances from submitted to executed to swept.
+                const handovers = db.createObjectStore(STORES.handovers, { keyPath: "id" });
+                handovers.createIndex("byVault", "vaultId", { unique: false });
             }
             if (!db.objectStoreNames.contains(STORES.simAttempts)) {
                 db.createObjectStore(STORES.simAttempts, { keyPath: "attemptId" });
@@ -151,4 +173,31 @@ export async function withStore<T>(
 /** Structured-cloned on the way out, so a caller mutating what it got cannot reach this store. */
 export function detach<T>(value: T): T {
     return structuredClone(value);
+}
+
+/**
+ * Delete the whole database.
+ *
+ * A demo affordance, and deliberately blunt: there is no migration path here and no attempt at one.
+ * Seals are bearer material and records are append-only, so "repair the rows" is not a thing this
+ * app can honestly offer — what it can offer is starting over, which is the right answer for a
+ * throwaway devnet wallet and never the right answer for a real one.
+ *
+ * Resolves once the delete completes. A blocked delete — another tab holding the database open —
+ * rejects rather than hanging, because a reset that silently did nothing is worse than one that
+ * says which tab to close.
+ */
+export function deleteDatabase(dbName = DEFAULT_DB_NAME): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error ?? new Error(`Could not delete ${dbName}.`));
+        request.onblocked = () =>
+            reject(
+                new Error(
+                    `Another tab still has "${dbName}" open, so it cannot be deleted. Close the ` +
+                        "other tabs on this app and try again.",
+                ),
+            );
+    });
 }

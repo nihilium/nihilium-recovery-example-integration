@@ -64,7 +64,7 @@ describe("protectionOf", () => {
         const state = protectionOf(vault(), CHAIN, onchain({ matchesVault: false }));
         expect(state).toBe("stale");
         // And it must not read as a lesser "protected" — the label names the problem.
-        expect(PROTECTION_LABELS[state]).toBe("Protected by a replaced gate");
+        expect(PROTECTION_LABELS[state]).toBe("On the old guardians");
     });
 
     it("is spent regardless of what the chain says", () => {

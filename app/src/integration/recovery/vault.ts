@@ -13,6 +13,11 @@
  * anything anywhere; this demo runs them together because it has an account in hand already, and
  * records the two timings apart so the asymmetry between them is visible rather than asserted.
  *
+ * **Recovery is not here.** It lives in `recoverAll.ts`, which opens *every* chain a vault covers
+ * from one ceremony. A single-chain `recoverVault()` used to sit in this file and was deleted rather
+ * than kept as a convenience: it is the shape a reader would copy, and it emails every guardian once
+ * per chain — undoing `addChain()`'s whole argument at the one moment it costs real money.
+ *
  * **To replace:** `VaultRecordStore` with wherever your wallet keeps metadata, and the `RecoverySDK`
  * construction if you bind one adapter for the life of the app. Split the two calls if your wallet
  * onboards before it has funds. Keep the order: ceremony, then record, then register on-chain — a
@@ -21,28 +26,23 @@
  * that it passed at seal time. The curve belongs to the chain, not to the SDK.
  */
 import {
+    OneWayViolationError,
     RecoverySDK,
-    type RecoveredAuthority,
     type RecoveryKeyInput,
     type SealBlob,
     type SealStore,
     type SealedDataStore,
-    type SpentSeal,
 } from "@nihilium/recovery-core";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ChainModule, DerivedAccount } from "../chains/types.js";
+import type { SealFile } from "./sealFile.js";
 import type {
-    GateRecord,
     RecoveryMethod,
-    SubjectPhase,
-    SubjectPrompt,
     Subject,
     SubjectSealed,
 } from "../conditions/types.js";
 import {
-    assertRecoveredKeyMatches,
     chainContextOf,
-    recoveredPublicKeyHex,
     type VaultChainRecord,
     type VaultRecord,
     type VaultRecordStore,
@@ -65,6 +65,8 @@ export interface SealVaultParams {
     walletId: string;
     /** Bumped by a completed recovery. Seal against what the chain says *now*, and record it. */
     epoch?: number;
+    /** Recorded on the vault and used by every later protect. See `VaultRecord.timelockSeconds`. */
+    timelockSeconds?: number;
     onSubjectSealed?(event: SubjectSealed): void;
     onProgress?(message: string): void;
 }
@@ -135,6 +137,9 @@ export async function sealVault(deps: VaultDeps, params: SealVaultParams): Promi
         writeMs,
         // Sealed is not protected. Set once the chain has registered this key.
         settlement: null,
+        // So a recovery run from a different seed can still rebuild this chain's addresses. See
+        // `VaultChainRecord.signerAddress` for why the PDA alone is not enough on Solana.
+        signerAddress: params.account.signer.address,
     };
 
     const vault: VaultRecord = {
@@ -149,6 +154,7 @@ export async function sealVault(deps: VaultDeps, params: SealVaultParams): Promi
         gate: { ...setup.gate, summary: setup.condition.summary },
         chains: [chainRecord],
         spent: null,
+        ...(params.timelockSeconds !== undefined ? { timelockSeconds: params.timelockSeconds } : {}),
     };
     await deps.vaults.put(vault);
 
@@ -213,10 +219,9 @@ export async function addChainToVault(
             `addChain   re-keying ${params.chain.id}; the previous recovery key for this chain is superseded`,
         );
     } else if (existing !== undefined) {
+        // A second root secret for one chain would leave a recovery unable to say which is current.
         throw new Error(
-            `${params.chain.label} is already in vault ${params.vault.vaultId}. Adding it twice ` +
-                "would put a second root secret for the same chain in one vault, and a recovery " +
-                "would have no way to say which is current.",
+            `${params.chain.label} is already in vault ${params.vault.vaultId}.`,
         );
     }
 
@@ -265,6 +270,7 @@ export async function addChainToVault(
         writeMs,
         // Sealed is not protected — on this chain as on the first.
         settlement: null,
+        signerAddress: params.account.signer.address,
     };
 
     const updated: VaultRecord = {
@@ -309,9 +315,10 @@ export async function resealVault(
     params: SealVaultParams & { replacing: string },
 ): Promise<SealVaultResult> {
     if (params.replacing === params.vaultId) {
+        // vaultId is an HKDF input: reusing it derives the same recovery key behind the new gate
+        // and overwrites the old seal.
         throw new Error(
-            `A re-seal must use a new vaultId: ${params.vaultId} is an HKDF input, so re-using it ` +
-                "would derive the same recovery key behind the new gate and overwrite the old seal.",
+            `A re-seal needs a new vaultId; ${params.vaultId} is already used.`,
         );
     }
     const result = await sealVault(deps, params);
@@ -320,88 +327,68 @@ export async function resealVault(
     return result;
 }
 
-export interface RecoverVaultParams {
-    method: RecoveryMethod;
-    gate: GateRecord;
-    /** Exactly `gate.threshold` 1-based indices. Checked here and again by the method. */
-    selected: readonly number[];
-    chain: ChainModule;
-    vault: VaultRecord;
-    /** The chain being recovered — a vault may protect several. */
-    chainRecord: VaultChainRecord;
-    /** From an imported file. Absent, the seal store is asked. */
-    seal?: SealBlob;
-    /** From a provider, when this browser holds no records of its own. */
-    entries?: VaultRecord extends never ? never : Parameters<RecoverySDK["recover"]>[0]["entries"];
-    onProgress?(message: string): void;
-    onSubjectProgress?(index: number, message: string): void;
-    onSubjectPhase?(index: number, phase: SubjectPhase): void;
-    onSubjectPrompt?(prompt: SubjectPrompt): void;
-}
+/**
+ * The wallet a vault belongs to, when the file cannot say.
+ *
+ * An imported seal file carries the vault and the gate, never the seed — so this browser genuinely
+ * does not know whose wallet it protects, and cannot derive it. Marking it with a value no seed
+ * fingerprint can equal is the honest answer, and it sorts the vault under "seed gone", which is
+ * both true from here and the group that needs the attention.
+ */
+export const IMPORTED_WALLET_ID = "imported — seed unknown";
 
-export interface RecoverVaultResult {
-    authority: RecoveredAuthority;
-    /** Derived once, here, so no caller re-derives it with the wrong curve. */
-    publicKeyHex: string;
-    spent: SpentSeal;
-    contacted: readonly number[];
-    /** Guardians this recovery never asked. Rendered as prominently as the ones it did. */
-    untouched: readonly number[];
-}
-
-export async function recoverVault(
+/**
+ * Take a seal file and make this browser able to open the vault it describes.
+ *
+ * Three writes, and the order is the safety argument: the seal last, because it is the bearer half
+ * and a half-finished import that left a seal with no context is the one state that looks recoverable
+ * and is not.
+ *
+ * **Idempotent by construction.** Records are append-only and reject a duplicate `entryId` with
+ * `OneWayViolationError` — which here is not a failure but the expected answer for a file imported
+ * twice, so it is swallowed per entry rather than aborting the import.
+ *
+ * **To replace:** nothing, if you keep this file format. A wallet that fetches records from a host
+ * imports the seal alone and lets the host supply the rest. **Assumes:** the caller has already
+ * parsed and validated the file with `parseSealFile`.
+ */
+export async function importSealFile(
     deps: VaultDeps,
-    params: RecoverVaultParams,
-): Promise<RecoverVaultResult> {
-    const recovery = await params.method.createRecovery({
-        gate: params.gate,
-        selected: params.selected,
-        ...(params.onSubjectProgress ? { onSubjectProgress: params.onSubjectProgress } : {}),
-        ...(params.onSubjectPhase ? { onSubjectPhase: params.onSubjectPhase } : {}),
-        ...(params.onSubjectPrompt ? { onSubjectPrompt: params.onSubjectPrompt } : {}),
-    });
+    file: SealFile,
+): Promise<{ vault: VaultRecord; entriesAdded: number; entriesAlreadyHeld: number }> {
+    const existing = await deps.vaults.get(file.vaultId);
 
-    const sdk = new RecoverySDK({
-        key: params.chain.keyAdapter,
-        condition: recovery.adapter,
-        sealStore: deps.sealStore,
-        dataStore: deps.dataStore,
-    });
+    let added = 0;
+    let held = 0;
+    for (const entry of file.entries ?? []) {
+        try {
+            await deps.dataStore.addEntry(file.recordId as VaultRecord["recordId"], entry);
+            added += 1;
+        } catch (error) {
+            // Already here. The store is append-only and says so by refusing; for an import that is
+            // the success case, not an error.
+            if (error instanceof OneWayViolationError) held += 1;
+            else throw error;
+        }
+    }
 
-    const context = chainContextOf(params.vault, params.chainRecord);
-    const outcome = await sdk.recover({
-        proof: recovery.proof,
-        chain: context,
-        // `rawKey`, the SDK's first-class opt-out (§13), and a deliberate one here.
-        //
-        // The demo has to *show* what was recovered — a wallet that says "recovered" and shows
-        // nothing is asking to be believed — and it has to sign the on-chain intent with it. A
-        // capability gives a scoped, zeroizing signer and no way to display the key; raw bytes give
-        // both, at the cost of the scope. In a demo whose mnemonic is printed on the front page that
-        // is the right trade, and it makes "the key is assembled" a thing you can look at rather
-        // than a claim. A real wallet should use the capability and let it zeroize.
-        options: { mode: "rawKey" },
-        ...(params.seal ? { seal: params.seal } : {}),
-        ...(params.entries ? { entries: params.entries } : {}),
-        ...(params.onProgress ? { onProgress: params.onProgress } : {}),
-    });
-
-    // The only check that catches a wrong epoch, and necessarily after the ceremony has run. It
-    // needs the chain's adapter in `rawKey` mode, because raw bytes carry no public half.
-    assertRecoveredKeyMatches(outcome.authority, params.chainRecord, params.chain.keyAdapter);
-
-    // A spent vault is never silently reused: every chain's root secret is now exposed to whoever
-    // ran this, and the answer is a new ceremony, never a new epoch on the old one.
-    await deps.vaults.put({
-        ...params.vault,
-        spent: { at: Date.now(), reason: outcome.spent.reason },
-    });
-
-    return {
-        authority: outcome.authority,
-        publicKeyHex: recoveredPublicKeyHex(outcome.authority, params.chain.keyAdapter),
-        spent: outcome.spent,
-        contacted: recovery.contacted,
-        untouched: recovery.untouched,
+    // The ledger row, kept if one already exists: a local record may carry settlement state and an
+    // epoch this file predates, and overwriting that with the file's older view would be a silent
+    // downgrade of the one field nothing else can check.
+    const vault: VaultRecord = existing ?? {
+        vaultId: file.vaultId,
+        walletId: IMPORTED_WALLET_ID,
+        recordId: file.recordId as VaultRecord["recordId"],
+        createdAt: file.exportedAt,
+        ceremonyMs: 0,
+        publicComponent: file.publicComponent,
+        gate: file.gate,
+        chains: file.chains,
+        spent: null,
     };
+    if (existing === undefined) await deps.vaults.put(vault);
+
+    // Last. See above.
+    await deps.sealStore.putSeal(file.vaultId, file.seal);
+    return { vault, entriesAdded: added, entriesAlreadyHeld: held };
 }

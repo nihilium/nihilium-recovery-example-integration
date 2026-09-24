@@ -179,7 +179,7 @@ function setIdOf(condition: Condition): string {
     const setId = (condition.descriptor as { setId?: unknown } | undefined)?.setId;
     if (typeof setId !== "string" || setId === "") {
         throw new Error(
-            "This quorum condition carries no set id, so an interrupted setup could not be resumed.",
+            "Quorum condition has no set id; an interrupted setup cannot resume.",
         );
     }
     return setId;

@@ -23,6 +23,16 @@ export interface DemoEnv {
     /** Devnet RPC. Queried for real balances — this chain has no simulated ones. */
     solanaRpcUrl: string;
     /**
+     * Ethereum **mainnet**, and it is read for prices only — never written to, never an account.
+     *
+     * This app runs on testnets where gas is free and the token is worthless, so a fee quoted from
+     * the chains it actually uses would be a number near zero. The work is measured on Sepolia and
+     * devnet; the price comes from here. See `integration/costs/prices.ts`.
+     */
+    mainnetRpcUrl: string;
+    /** Arbitrum One, read for Chainlink's SOL/USD only — Ethereum's copy of that feed runs ~24h stale. */
+    arbitrumRpcUrl: string;
+    /**
      * Write capabilities on the record host and the watchtower, generated per machine by
      * `scripts/setup-env.mjs`. `undefined` when nothing generated them — and deliberately not
      * defaulted to a constant, because a credential a repository ships is one every clone shares.
@@ -56,6 +66,8 @@ export function readEnv(): DemoEnv {
         bundlerUrl: env.VITE_BUNDLER_URL ?? "https://public.pimlico.io/v2/11155111/rpc",
         moduleAttester: (env.VITE_MODULE_ATTESTER ?? "0x4490f5D9f1cf47b2FBa68158c130aAE8107274a9") as `0x${string}`,
         solanaRpcUrl: env.VITE_SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
+        mainnetRpcUrl: env.VITE_MAINNET_RPC_URL ?? "https://ethereum-rpc.publicnode.com",
+        arbitrumRpcUrl: env.VITE_ARBITRUM_RPC_URL ?? "https://arbitrum-one-rpc.publicnode.com",
         // Matched by `server/.env`; both sides must agree or appends and registrations are refused.
         recordAppendSecret: blank(env.VITE_RECORD_APPEND_SECRET),
         watchRegisterSecret: blank(env.VITE_WATCH_REGISTER_SECRET),
@@ -85,10 +97,9 @@ export function requireCredential(
     which: "VITE_RECORD_APPEND_SECRET" | "VITE_WATCH_REGISTER_SECRET",
 ): string {
     if (value === undefined) {
+        // setup:env writes app/.env.local and server/.env with one matching pair.
         throw new Error(
-            `${which} is not set, so this demo cannot write to the server role that needs it. ` +
-                "Run `npm run setup:env` at the repository root — it writes app/.env.local and " +
-                "server/.env with one matching pair.",
+            `${which} is not set. Run \`npm run setup:env\` at the repository root.`,
         );
     }
     return value;

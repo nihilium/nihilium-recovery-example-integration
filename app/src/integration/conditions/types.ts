@@ -144,8 +144,6 @@ export interface GatePreset {
     subjectCount: number;
     /** "2 of 3 to recover" */
     label: string;
-    /** What losing some survives. The number never renders alone. */
-    survives: string;
     recommended?: boolean;
 }
 
@@ -182,11 +180,7 @@ export interface GateRecord {
 export interface GateDescription {
     /** "any 2 of 3 email addresses" */
     headline: string;
-    survives: string;
     slots: readonly { index: number; label: string; publicLabel: string }[];
-    /** "Sealed in simulated mode — no email was ever sent." */
-    modeNote: string;
-    limits: readonly string[];
 }
 
 export interface CeremonyCost {

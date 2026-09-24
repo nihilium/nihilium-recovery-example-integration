@@ -18,7 +18,6 @@ import type { Balance, ChainModule, DerivedAccount } from "../integration/chains
 import { Button, StatusMessage, TextInput, TextLink } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Transcript } from "./Transcript.js";
-import { Explain } from "./Explain.js";
 
 export function SendDialog({
     open,
@@ -156,15 +155,6 @@ export function SendDialog({
 
                 {error !== null && <StatusMessage tone="error">{error}</StatusMessage>}
 
-                <Explain>
-                    <p>
-                        This is a UserOperation, not a transaction: the smart account asks the entry
-                        point to run one call on its behalf, and the wallet&apos;s key signs that
-                        request rather than the transfer. Nothing here pays a paymaster, so the
-                        account funds its own execution — which is why the full balance is never
-                        sendable.
-                    </p>
-                </Explain>
             </div>
         </Dialog>
     );

@@ -8,11 +8,11 @@
  *
  * `recoveryHealth.ts` decides what the states are; this only draws them.
  */
-import { STAGE_DETAIL, STAGE_LABELS, type RecoveryStage } from "./recoveryHealth.js";
+import { STAGE_LABELS, type RecoveryStage } from "./recoveryHealth.js";
 
 export function StageBadge({ stage }: { stage: RecoveryStage }) {
     return (
-        <span className={`stage stage--${stage}`} title={STAGE_DETAIL[stage]}>
+        <span className={`stage stage--${stage}`}>
             <span className="stage__dot" aria-hidden="true" />
             {STAGE_LABELS[stage]}
         </span>
@@ -30,14 +30,6 @@ export function WatchBadge({ watching }: { watching: boolean }) {
     return (
         <span
             className={`stage stage--${watching ? "watched" : "unwatched"}`}
-            title={
-                watching
-                    ? "A watchtower is registered for this vault and polls for unsealing attempts."
-                    : "Nothing is registered to watch this vault, so a recovery started by somebody " +
-                      "else would not appear here. That is not the same as “nothing is happening”. " +
-                      "The watchtower role is not built in this demo yet — server/src/roles/ has no " +
-                      "watchtower in it."
-            }
         >
             <span className="stage__dot" aria-hidden="true" />
             {watching ? "Watched" : "No watchtower yet"}

@@ -68,12 +68,15 @@ describe("transcripts are per operation", () => {
         }
     });
 
-    it("keeps the settlement and on-chain hooks on their own transcripts", () => {
+    it("keeps each operation's hook on its own transcript", () => {
         // These were always separate; the test pins it so a later "let's unify the log" does not
-        // quietly recreate the problem one layer up.
+        // quietly recreate the problem one layer up. `useRecoveryChain` used to be on this list and
+        // is gone: it drove initiate and execute for the chain on screen, which `submitAll` already
+        // does for every chain — so its only remaining effect was a second attempt the module
+        // refuses with `AttemptInFlight`.
         expect(text("src/demo/useSettlement.ts")).toContain("log: string[]");
-        expect(text("src/demo/useRecoveryChain.ts")).toContain("log: string[]");
+        expect(text("src/demo/useProtectAll.ts")).toContain("log: readonly string[]");
         expect(text("src/ui/WalletCard.tsx")).toContain("settlement.state.log");
-        expect(text("src/ui/RecoverDialog.tsx")).toContain("onchain.state.log");
+        expect(text("src/ui/ProtectAllDialog.tsx")).toContain("lines={log}");
     });
 });

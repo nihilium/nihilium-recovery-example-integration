@@ -24,7 +24,6 @@ import type { SeedEntry } from "../demo/seeds.js";
 import { AddressChip } from "./AddressChip.js";
 import { Button, StatusMessage } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
-import { Explain } from "./Explain.js";
 import { Notice } from "./Notice.js";
 
 interface Covered {
@@ -95,8 +94,7 @@ export function SeedRemoveDialog({
         >
             <div className="stack">
                 <p>
-                    This phrase exists in one place: this browser. Removing it destroys the only copy
-                    and the signing key for every account it derives.
+                    This is the only copy. Removing it is permanent.
                 </p>
 
                 <div className="row">
@@ -115,32 +113,18 @@ export function SeedRemoveDialog({
 
                 {covered !== null && covered.protectedChains.length > 0 && (
                     <Notice>
-                        <strong>{covered.protectedChains.join(", ")}</strong> — recovery is set up.
-                        Removing the seed is the loss, and the vault survives it: a recovery needs the
-                        seal and the guardians, never this phrase. You can get these accounts back.
+                        <strong>{covered.protectedChains.join(", ")}</strong> — recoverable
+                        without this seed.
                     </Notice>
                 )}
 
                 {covered !== null && covered.bareChains.length > 0 && (
                     <Notice tone="caution">
-                        <strong>{covered.bareChains.join(", ")}</strong> — no recovery is set up.
-                        Anything at these addresses becomes permanently unreachable, by exactly the
-                        mechanism recovery exists to prevent.
+                        <strong>{covered.bareChains.join(", ")}</strong> — no recovery.
+                        Funds here become unreachable.
                     </Notice>
                 )}
 
-                <Explain>
-                    <p>
-                        The vault stays in this browser&apos;s storage under the account it was sealed
-                        against, and the chain still holds whatever recovery key was registered.
-                        Nothing about removing a wallet seed touches either — which is the whole
-                        claim recovery makes, made concrete.
-                    </p>
-                    <p>
-                        The published demo phrase cannot be removed. It is the floor that guarantees
-                        there is always something derivable.
-                    </p>
-                </Explain>
             </div>
         </Dialog>
     );

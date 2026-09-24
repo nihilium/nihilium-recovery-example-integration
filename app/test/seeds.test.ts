@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
     activeEntry,
     addGeneratedSeed,
+    addImportedSeed,
     loadSeedBook,
     removeSeed,
     seedFingerprint,
@@ -200,5 +201,164 @@ describe("seedFingerprint", () => {
         const seed = activeEntry(loadSeedBook()).mnemonic;
         const words = seed.split(" ");
         expect(seedFingerprint(seed)).toBe(`${words[0]}…${words[11]}`);
+    });
+});
+
+describe("a seed pasted in by hand", () => {
+    beforeEach(() => withStorage());
+
+    /**
+     * Two genuinely valid BIP-39 phrases that share a first and last word — found by generating
+     * until a pair collided, because the checksum makes them impossible to write by hand.
+     */
+    const PHRASE_A = "case feed neck junior pave stage buzz gather ridge buddy kingdom alien";
+    const PHRASE_B = "case sheriff during local embark engage spoon endless grace transfer prize alien";
+
+    it("is accepted, switched to, and marked as pasted rather than generated", () => {
+        const book = addImportedSeed(loadSeedBook(), PHRASE_A);
+        expect(book.active).toBe(PHRASE_A);
+        expect(activeEntry(book).origin).toBe("imported");
+        // The distinction is not cosmetic: removing a generated seed destroys the only copy, which
+        // is the loss this demo stages. A pasted one presumably exists where it was pasted from.
+        expect(book.seeds.filter((seed) => seed.origin === "generated")).toHaveLength(1);
+    });
+
+    it("normalizes spacing and case rather than refusing them", () => {
+        const book = addImportedSeed(loadSeedBook(), `  ${PHRASE_A.toUpperCase()}  `);
+        expect(book.active).toBe(PHRASE_A);
+    });
+
+    it("refuses a phrase that is not BIP-39", () => {
+        // Would derive perfectly good accounts — just not the ones the user meant.
+        expect(() => addImportedSeed(loadSeedBook(), "not even close to a mnemonic")).toThrow(
+            /valid BIP-39/,
+        );
+    });
+
+    it("refuses one already in the book", () => {
+        const book = addImportedSeed(loadSeedBook(), PHRASE_A);
+        expect(() => addImportedSeed(book, PHRASE_A)).toThrow(/already in the list/);
+    });
+
+    it("refuses a phrase whose first and last words collide with an existing seed", () => {
+        /**
+         * The guard worth having. `walletId` is `seedFingerprint(mnemonic)` — the first and last
+         * word — and that string is what `VaultRecord.walletId` stores. Two phrases sharing both
+         * words would share a wallet identity, so each would list the other's vaults as its own.
+         * Nothing downstream could detect it, and no error would ever be raised.
+         */
+        expect(seedFingerprint(PHRASE_A)).toBe(seedFingerprint(PHRASE_B));
+
+        const book = addImportedSeed(loadSeedBook(), PHRASE_A);
+        expect(() => addImportedSeed(book, PHRASE_B)).toThrow(/same words/);
+        // And the book is unchanged — a refused import must not half-apply.
+        expect(book.seeds.some((seed) => seed.mnemonic === PHRASE_B)).toBe(false);
+    });
+
+    it("survives a book written before imports existed", () => {
+        // Older rows carry no `origin`. Defaulting to `generated` is the safe direction: it makes
+        // the removal warning say this browser holds the only copy.
+        const store = withStorage();
+        store.set(
+            "nihilium-demo.seeds",
+            JSON.stringify({ seeds: [{ mnemonic: PHRASE_A, label: "Seed 1", addedAt: 0 }], active: PHRASE_A }),
+        );
+        expect(activeEntry(loadSeedBook()).origin).toBe("generated");
+    });
+});
+
+describe("naming seeds", () => {
+    beforeEach(() => withStorage());
+
+    const A = "case feed neck junior pave stage buzz gather ridge buddy kingdom alien";
+
+    it("numbers from the highest taken, not from the count", () => {
+        /**
+         * The bug, in one sequence. Labels used to be `Seed ${seeds.length + 1}`, so removing one
+         * dropped the count and the next seed reused a number already in use — and again, and
+         * again, until every row in the switcher read "Seed 2" and none of them could be told
+         * apart. Removing a seed is the loss this demo *stages*, so this happened constantly.
+         */
+        let book = loadSeedBook();
+        expect(book.seeds.map((s) => s.label)).toEqual(["Seed 1"]);
+
+        book = addGeneratedSeed(book);
+        expect(book.seeds.map((s) => s.label)).toEqual(["Seed 1", "Seed 2"]);
+
+        // Remove the first. The count is 1 again; the highest number taken is still 2.
+        book = removeSeed(book, book.seeds[0]!.mnemonic);
+        book = addGeneratedSeed(book);
+        expect(book.seeds.map((s) => s.label)).toEqual(["Seed 2", "Seed 3"]);
+
+        book = removeSeed(book, book.seeds[0]!.mnemonic);
+        book = addGeneratedSeed(book);
+        expect(book.seeds.map((s) => s.label)).toEqual(["Seed 3", "Seed 4"]);
+    });
+
+    it("gives an imported seed a free number too", () => {
+        let book = addGeneratedSeed(loadSeedBook());
+        book = removeSeed(book, book.seeds[0]!.mnemonic);
+        book = addImportedSeed(book, A);
+        expect(new Set(book.seeds.map((s) => s.label)).size).toBe(book.seeds.length);
+    });
+
+    it("never hands out a label another seed already has", () => {
+        let book = loadSeedBook();
+        for (let i = 0; i < 6; i++) {
+            book = addGeneratedSeed(book);
+            // Drop the oldest each round, which is what kept resetting the count.
+            book = removeSeed(book, book.seeds[0]!.mnemonic);
+        }
+        expect(new Set(book.seeds.map((s) => s.label)).size).toBe(book.seeds.length);
+    });
+
+    it("repairs a book already carrying duplicates, rather than leaving it stuck", () => {
+        // What a wallet that hit the bug has on disk right now. Clearing storage would also clear
+        // the vaults, so the fix has to reach existing books.
+        const store = withStorage();
+        const three = [
+            { mnemonic: A, label: "Seed 2", addedAt: 1, origin: "generated" },
+            {
+                mnemonic:
+                    "legal winner thank year wave sausage worth useful legal winner thank yellow",
+                label: "Seed 2",
+                addedAt: 2,
+                origin: "generated",
+            },
+            {
+                mnemonic:
+                    "case sheriff during local embark engage spoon endless grace transfer prize alien",
+                label: "Seed 2",
+                addedAt: 3,
+                origin: "generated",
+            },
+        ];
+        store.set("nihilium-demo.seeds", JSON.stringify({ seeds: three, active: A }));
+
+        const labels = loadSeedBook().seeds.map((seed) => seed.label);
+        expect(new Set(labels).size).toBe(3);
+        // The first holder keeps its name, so nothing renames under someone who never hit this.
+        expect(labels[0]).toBe("Seed 2");
+    });
+
+    it("leaves a healthy book's names alone", () => {
+        const store = withStorage();
+        store.set(
+            "nihilium-demo.seeds",
+            JSON.stringify({
+                seeds: [
+                    { mnemonic: A, label: "Seed 1", addedAt: 1, origin: "generated" },
+                    {
+                        mnemonic:
+                            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+                        label: "Seed 2",
+                        addedAt: 2,
+                        origin: "generated",
+                    },
+                ],
+                active: A,
+            }),
+        );
+        expect(loadSeedBook().seeds.map((s) => s.label)).toEqual(["Seed 1", "Seed 2"]);
     });
 });

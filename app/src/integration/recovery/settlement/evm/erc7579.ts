@@ -176,8 +176,7 @@ export async function executorPrev(
     }
 
     throw new Error(
-        `The recovery module ${module} is not in ${account}'s executor list, so there is nothing ` +
-            "to uninstall. Installing it fresh is the operation you want, not rotating it.",
+        `Module ${module} is not in ${account}'s executor list. Install it instead of replacing it.`,
     );
 }
 

@@ -49,6 +49,6 @@ export const PROTECTION_LABELS: Record<Protection, string> = {
     unprotected: "Not set up",
     sealed: "Sealed · not on-chain yet",
     protected: "Protected",
-    stale: "Protected by a replaced gate",
+    stale: "On the old guardians",
     spent: "Spent — set up again",
 };

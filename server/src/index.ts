@@ -67,7 +67,7 @@ app.use(
     createRelayerRouter({
         publicClient,
         walletClient: relayerKey.client,
-        relayer: relayerKey.address,
+        relayer: relayerKey.account,
         moduleAddress: MODULE_ADDRESS as Address,
         fundMaxWei: config.fundMaxWei,
         vetoConfig: {
@@ -86,12 +86,12 @@ app.use(
     createVetoRouter({
         publicClient,
         moduleAddress: MODULE_ADDRESS as Address,
-        pause: { client: pauseKey.client, address: pauseKey.address },
+        pause: { client: pauseKey.client, account: pauseKey.account },
         resume: {
             signers: resumeKeys.map((k) => k.account),
             // The relayer submits, because `resume` verifies the signatures rather than the sender —
             // so the quorum never needs gas of its own.
-            submitter: { client: relayerKey.client, address: relayerKey.address },
+            submitter: { client: relayerKey.client, account: relayerKey.account },
         },
         resumeThreshold: config.resumeThreshold,
         log: (message) => logInfo("veto", message),

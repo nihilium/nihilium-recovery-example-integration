@@ -65,6 +65,9 @@ function fakeReader(state: FakeState = {}): ModuleReader {
             pausedSeconds: 0n,
             checkpointTime: 0n,
         }),
+        // The projected state, which is what a caller should prefer over the stored one. The fake
+        // returns the same value because nothing here exercises an auto-lifted pause.
+        stateOf: async () => state.state ?? null,
         hashIntent: async () => `0x${"ab".repeat(32)}` as Hex,
         resumeDigest: async () => `0x${"cd".repeat(32)}` as Hex,
         balanceOf: async () => state.relayerBalance ?? MIN_RELAYER_BALANCE_WEI,

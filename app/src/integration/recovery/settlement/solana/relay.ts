@@ -18,8 +18,11 @@
  * reason attached, and comparing here is free.
  */
 import type { PublicKey } from "@solana/web3.js";
+import { VetoStateOrdinal } from "@nihilium/recovery-onchain-solana";
+import type { VetoState } from "@nihilium/recovery-core";
+import type { AttemptClock } from "../timelock.js";
 import type { VaultProgram } from "./program.js";
-import { toIntent, type SolanaIntentInputs } from "./recovery.js";
+import { projectedState, toIntent, type SolanaIntentInputs } from "./recovery.js";
 import type { SolanaVaultAddresses } from "./addresses.js";
 
 /** The vault's replay-protection counters and who it currently answers to. */
@@ -38,6 +41,37 @@ export interface SolanaVaultState {
      */
     configNonce: number;
     registered: boolean;
+    /**
+     * The veto clock, **as one consistent snapshot**.
+     *
+     * The account is raw storage, so its state and its counters are equally old and therefore agree
+     * with each other. `projectTimelock` needs exactly that pairing; see `timelock.ts` for why
+     * substituting `projectedState()` here reports an account as recoverable a full ceiling early.
+     */
+    clock: AttemptClock;
+}
+
+/** `None` is the absence of an attempt, not a state the SDK names — so it maps to `null`. */
+function toVetoState(ordinal: number): VetoState | null {
+    switch (ordinal) {
+        case VetoStateOrdinal.NONE:
+            return null;
+        case VetoStateOrdinal.INITIATED:
+            return "INITIATED";
+        case VetoStateOrdinal.PAUSED:
+            return "PAUSED";
+        case VetoStateOrdinal.EXECUTABLE:
+            return "EXECUTABLE";
+        case VetoStateOrdinal.EXECUTED:
+            return "EXECUTED";
+        case VetoStateOrdinal.ABORTED:
+            return "ABORTED";
+        default:
+            // Treated as unsafe rather than mapped to the nearest known state.
+            throw new Error(
+                `Unknown veto state ${ordinal}: this build does not know it.`,
+            );
+    }
 }
 
 export async function readVaultState(
@@ -49,10 +83,17 @@ export async function readVaultState(
     const row = account as {
         owner: PublicKey;
         recoveryOwner: PublicKey;
-        epoch: { toNumber(): number };
-        nonce: { toNumber(): number };
-        configNonce: { toNumber(): number };
+        epoch: BNish;
+        nonce: BNish;
+        configNonce: BNish;
         registered: boolean;
+        attempt: {
+            state: number;
+            accruedSeconds: BNish;
+            pausedSeconds: BNish;
+            checkpointTime: BNish;
+        };
+        veto: { timelockSeconds: BNish; pauseCeilingSeconds: BNish };
     };
     return {
         owner: row.owner.toBase58(),
@@ -61,7 +102,21 @@ export async function readVaultState(
         nonce: row.nonce.toNumber(),
         configNonce: row.configNonce.toNumber(),
         registered: row.registered,
+        clock: {
+            state: toVetoState(row.attempt.state),
+            accruedSeconds: row.attempt.accruedSeconds.toNumber(),
+            pausedSeconds: row.attempt.pausedSeconds.toNumber(),
+            // `i64` on-chain: Solana's clock is a signed unix timestamp, unlike the EVM `uint64`.
+            checkpointSeconds: row.attempt.checkpointTime.toNumber(),
+            timelockSeconds: row.veto.timelockSeconds.toNumber(),
+            pauseCeilingSeconds: row.veto.pauseCeilingSeconds.toNumber(),
+        },
     };
+}
+
+/** Anchor hands back `BN` for every integer wider than 32 bits; only this much of it is used. */
+interface BNish {
+    toNumber(): number;
 }
 
 export interface RelayDeps {
@@ -145,4 +200,43 @@ async function post<T>(serverUrl: string, route: string, body: unknown): Promise
 
 function toHex(bytes: Uint8Array): string {
     return `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * The same two halves the EVM reader returns, so the two chains answer one shape.
+ *
+ * Two round trips on purpose. The account read gives the stored snapshot the arithmetic needs;
+ * `projected_state` *simulates* the instruction to get the state a user should be shown, which is
+ * the only way to learn that a pause past its ceiling has already lifted. Collapsing them into one
+ * read loses whichever question was not asked — see `timelock.ts`.
+ */
+export async function readAttemptClock(
+    ctx: VaultProgram,
+    addresses: SolanaVaultAddresses,
+): Promise<{ projected: VetoState | null; clock: AttemptClock | null; state: SolanaVaultState }> {
+    const state = await readVaultState(ctx, addresses);
+    if (state.clock.state === null) {
+        // No attempt. Simulating `projected_state` would answer `NONE` at the cost of a round trip.
+        return { projected: null, clock: state.clock, state };
+    }
+
+    /**
+     * The projection is an improvement on the stored state, not a substitute for reading at all.
+     *
+     * `projected_state` is a *view* instruction: Anchor runs it by simulating a transaction, which
+     * is a whole extra failure surface — a simulation can be refused for reasons that have nothing
+     * to do with the vault, and it was taking the entire row down with it. The account read above
+     * has already succeeded at that point, and its state is honest; the only thing the projection
+     * adds is noticing that a pause has passed its ceiling.
+     *
+     * So a failure here degrades to the stored state rather than to nothing. That is the safe
+     * direction: the stored state of an auto-lifted pause is `PAUSED`, which under-promises — it
+     * says the clock is held when it is running again, never the reverse.
+     */
+    try {
+        const name = await projectedState(ctx, addresses);
+        return { projected: name === "NONE" ? null : name, clock: state.clock, state };
+    } catch {
+        return { projected: state.clock.state, clock: state.clock, state };
+    }
 }

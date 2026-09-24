@@ -234,13 +234,15 @@ binding on UI copy, docs and comments:
   costs us if declined.
 - **Comments explain why.** The SDK's own source is the register to match: a comment earns its place
   by explaining a constraint or a trade-off, not by restating the line under it.
-- **Status at rest, explanation on demand.** A card shows a heading, at most one sentence, its state
-  and its actions; everything longer goes inside `<Explain>` and renders only when the reader turns
-  the top-bar toggle on. The test is *reports* versus *teaches*: a domain verdict, a price before a
-  paid button, `spent.reason` or the `Demo` tag is a fact about this run and is always visible, while
-  why §12 exists or what a quorum survives is true regardless and belongs behind the toggle. Both
-  directions are pinned by `app/test/copy.test.ts`. Anything paid, slow or irreversible happens in a
-  `Dialog`, not on the page — and a dialog whose operation is in flight is not dismissible.
+- **Status and actions, and nothing else.** A card shows a heading, at most one sentence, its state
+  and its actions. There is no explanation layer: the `<Explain>` toggle this app used to carry was
+  removed, and `app/test/copy.test.ts` fails if one comes back. What the screen owes the reader is
+  facts about *this run* — a domain verdict, a price before a paid button, `spent.reason`, what a
+  recovery cost, the `Demo` tag — and that test pins each of them by name, with the reason it
+  matters. Teaching belongs in file headers and in `docs/`, where it is read by someone who came
+  looking. Copy earns its place by reporting, not by explaining; no rhetorical asides. Anything paid,
+  slow or irreversible happens in a `Dialog`, not on the page — and a dialog whose operation is in
+  flight is not dismissible.
 - **Styling is the nihilium-design-system.** Load the skill before writing any UI and use its
   components and `--nih-*` tokens; do not invent a palette. It is a **light** system — pale-blue
   surface, near-black ink, translucent cards behind hard 2px borders — so dense and

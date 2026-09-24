@@ -207,9 +207,9 @@ export async function projectedState(
         (key) => VetoStateOrdinal[key] === Number(ordinal),
     );
     if (name === undefined) {
+        // Treated as unsafe rather than mapped to the nearest known state.
         throw new Error(
-            `The program reported veto state ${String(ordinal)}, which this build does not know. ` +
-                "An unknown state is treated as unsafe rather than mapped to the nearest known one.",
+            `Unknown veto state ${String(ordinal)}: this build does not know it.`,
         );
     }
     return name;

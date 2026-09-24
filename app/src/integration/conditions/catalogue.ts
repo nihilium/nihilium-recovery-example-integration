@@ -25,32 +25,24 @@ export const EMAIL_ZKPASSPORT_METHOD_ID = "email-zkpassport-quorum";
  * sealed but never opened is worse than one that is absent. So they are shown, and refused.
  */
 export const UNWIRED_OFFERS: readonly MethodOffer[] = [
+    // Why neither is wired: recovering needs the ZKPassport browser SDK, a QR scan and a physical
+    // passport, none of which this demo drives. `@nihilium/recovery-condition-zkemail-zkpassport` and
+    // `@nihilium/recovery-condition-zkpassport` are real and would seal from these fields — sealing
+    // a gate that can never be opened is the outcome this list exists to prevent.
     {
         id: EMAIL_ZKPASSPORT_METHOD_ID,
         label: "Email and passport",
         icon: "ShieldCheck",
-        blurb:
-            "Each guardian proves control of their inbox and holds a passport matching a name and " +
-            "date of birth. Both, not either — and bound together in one ceremony rather than " +
-            "stacked as two.",
+        blurb: "Each guardian proves an inbox and a passport.",
         available: false,
-        unavailable:
-            "Not wired here. @nihilium/recovery-condition-zkemail-zkpassport is real and would seal " +
-            "from these fields, but recovering needs the ZKPassport browser SDK, a QR scan and an " +
-            "actual passport — none of which this demo has. A gate that seals and never opens is " +
-            "worse than one that is missing.",
+        unavailable: "Not available in this demo.",
     },
     {
         id: ZKPASSPORT_METHOD_ID,
         label: "Passport only",
         icon: "DocumentCheck",
-        blurb:
-            "A passport proving an exact date of birth and a name. No inbox, no third party, and " +
-            "nothing to lose access to — but an exact date of birth is close to an identifier.",
+        blurb: "Recover with a passport's name and date of birth.",
         available: false,
-        unavailable:
-            "Not wired here. @nihilium/recovery-condition-zkpassport is real, and the same gap " +
-            "applies: sealing is three typed fields, recovering is a passport scan this demo cannot " +
-            "drive yet.",
+        unavailable: "Not available in this demo.",
     },
 ];

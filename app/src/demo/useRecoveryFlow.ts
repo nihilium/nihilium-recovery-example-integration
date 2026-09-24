@@ -9,7 +9,6 @@
  * card read the same vault and must never disagree about it.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { KeyAlgorithm } from "@nihilium/recovery-core";
 import type { ChainModule, DerivedAccount } from "../integration/chains/types.js";
 import type {
     MethodRegistry,
@@ -17,15 +16,21 @@ import type {
     SubjectPhase,
     SubjectPrompt,
 } from "../integration/conditions/types.js";
+import { importSealFile, resealVault, sealVault } from "../integration/recovery/vault.js";
 import {
-
-    recoverVault,
-    resealVault,
-    sealVault,
-} from "../integration/recovery/vault.js";
-import { toSealFile, type SealFile } from "../integration/recovery/sealFile.js";
+    recoverAllChains,
+    type RecoveredChainKey,
+} from "../integration/recovery/recoverAll.js";
+import { parseSealFile, toSealFile, type SealFile } from "../integration/recovery/sealFile.js";
 import { nextVaultId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { SealRef } from "@nihilium/recovery-core";
 import type { AppBindings } from "./bindings.js";
+import { deriveWallet } from "./wallet.js";
+import { destinationsFor } from "./destinations.js";
+import { seedFingerprint } from "./seeds.js";
+import { submitAll } from "../integration/recovery/handover/run.js";
+import { spentFromHandovers } from "../integration/recovery/handovers.js";
+import { handoverFor } from "./handoverRegistry.js";
 
 export type FlowPhase = "idle" | "sealing" | "sealed" | "recovering" | "recovered" | "failed";
 
@@ -49,6 +54,14 @@ export interface FlowState {
     phase: FlowPhase;
     /** Every vault this browser holds. Auto-discard keeps it at one per account, not by assumption. */
     vaults: VaultRecord[];
+    /**
+     * Which of those vaults this browser still holds the seal for.
+     *
+     * Read alongside the vaults because the two can disagree, and the disagreement is the state a
+     * user most needs told: records are inert and duplicable, the seal is not, so a vault with a
+     * ledger row and no seal is one whose only way in is the file handed over at seal time.
+     */
+    seals: SealRef[];
     /** Held in memory only, and handed to the user as a download. Never written beside the record. */
     sealFile: SealFile | null;
     members: MemberView[];
@@ -72,15 +85,24 @@ export interface FlowState {
     result: {
         contacted: readonly number[];
         untouched: readonly number[];
-        algorithm: KeyAlgorithm;
-        /** Derived in `recoverVault` with this chain's adapter, never re-derived by a caller. */
-        publicKeyHex: string;
         /**
-         * The private half, in `rawKey` mode. Held because the on-chain handover cannot be signed
-         * without it — and shown, because a wallet that says "recovered" and displays nothing is
-         * asking to be taken on trust.
+         * **Every chain the vault covers**, from one ceremony.
+         *
+         * A list rather than one key, because a vault is one gate over many chains and recovering
+         * them one at a time would email the guardians once per chain. Each entry carries its own
+         * `failure`, so a chain this build cannot derive does not cost the others their keys.
          */
-        material: Uint8Array | null;
+        keys: readonly RecoveredChainKey[];
+        /** How many times the guardians were actually asked. One, whatever the chain count. */
+        ceremonies: number;
+        /**
+         * Chains whose intent never reached the relayer, so nothing is on-chain for them.
+         *
+         * Recorded rather than inferred from whether a key is still held: `wipe()` zeroes the bytes
+         * in place and leaves the array, so "material is not null" stayed true after a perfectly
+         * successful recovery — and the retry button it drove never went away.
+         */
+        unsubmitted: readonly string[];
         spentReason: string;
     } | null;
 }
@@ -88,6 +110,7 @@ export interface FlowState {
 const EMPTY: FlowState = {
     phase: "idle",
     vaults: [],
+    seals: [],
     sealFile: null,
     members: [],
     prompts: {},
@@ -123,29 +146,37 @@ export function useRecoveryFlow(
      * "Protected by a replaced gate" forever.
      */
     const reload = useCallback(async () => {
-        const vaults = await bindings.vaults.list();
+        const [stored, seals, handovers] = await Promise.all([
+            bindings.vaults.list(),
+            bindings.stores.sealStore.listSeals(),
+            bindings.handovers.list(),
+        ]);
+        // Vaults opened before the spent mark was saved at recovery time. A handover row proves the
+        // vault opened, so they are marked and saved here — once, since a saved mark is never
+        // rewritten. See `spentFromHandovers`.
+        const repaired = spentFromHandovers(stored, handovers);
+        await Promise.all(repaired.map((vault) => bindings.vaults.put(vault)));
+        const fixed = new Map(repaired.map((vault) => [vault.vaultId, vault]));
+        const vaults = stored.map((vault) => fixed.get(vault.vaultId) ?? vault);
         setState((prev) => ({
             ...prev,
             vaults,
+            seals,
             phase: prev.phase === "idle" && vaults.length > 0 ? "sealed" : prev.phase,
         }));
     }, [bindings]);
 
     // Whatever this browser already sealed, so a reload does not look like a fresh start.
     useEffect(() => {
-        let live = true;
-        void bindings.vaults.list().then((vaults) => {
-            if (!live) return;
-            setState((prev) => ({
-                ...prev,
-                vaults,
-                phase: prev.phase === "idle" && vaults.length > 0 ? "sealed" : prev.phase,
-            }));
-        });
-        return () => {
-            live = false;
-        };
-    }, [bindings]);
+        // No `live` guard: `reload` merges into state rather than replacing it, so a late resolve
+        // after a remount writes the same rows it would have written anyway.
+        //
+        // The rule reads `reload` as a synchronous setState; it is not — it awaits two store reads
+        // first, so the write always lands in a later tick. Reading IndexedDB is exactly the
+        // "synchronising with an external system" the rule exempts.
+        // eslint-disable-next-line react/set-state-in-effect
+        void reload();
+    }, [reload]);
 
     const note = useCallback((channel: LogChannel, line: string) => {
         setState((prev) => ({
@@ -184,7 +215,7 @@ export function useRecoveryFlow(
      * second paid ceremony for a wallet that already had a perfectly good gate. One vault covers
      * every chain added to it; the fix is `addChain()`, which is free.
      */
-    const vault =
+    const walletVault =
         state.vaults.find((row) => row.walletId === walletId) ??
         // Nothing for this wallet. Not "the most recent vault" — that would show the previous
         // seed's gate against a wallet it does not protect.
@@ -197,6 +228,7 @@ export function useRecoveryFlow(
             subjects: readonly Subject[],
             threshold: number,
             replacing: VaultRecord | null,
+            timelockSeconds: number,
         ) => {
             const method = methods?.get(methodId) ?? null;
             if (method === null || account === undefined) return;
@@ -216,6 +248,7 @@ export function useRecoveryFlow(
                     account,
                     walletId,
                     vaultId: nextVaultId(account.accountId, state.vaults),
+                    timelockSeconds,
                     onSubjectSealed: (event: { index: number; summary: string }) =>
                         noteSeal(`sealVault  #${event.index}  ${event.summary}`),
                     onProgress: noteSeal,
@@ -229,6 +262,10 @@ export function useRecoveryFlow(
                           });
                 noteSeal(`seal       recordId=${vault.recordId}`);
                 noteSeal(`seal       ${vault.chains[0]?.writeMs ?? 0} ms · ${subjects.length} ceremonies`);
+                // Carried into the file so it can open the vault on a device that has never seen
+                // this browser. They are inert without the seal — §12's rule for records is the
+                // opposite of the seal's: copy them everywhere.
+                const entries = await bindings.stores.dataStore.getEntries(vault.recordId);
                 setState((prev) => ({
                     ...prev,
                     phase: "sealed",
@@ -238,7 +275,7 @@ export function useRecoveryFlow(
                         ...prev.vaults.filter((row) => row.vaultId !== replacing?.vaultId),
                         vault,
                     ],
-                    sealFile: toSealFile(vault, sealBlob),
+                    sealFile: toSealFile(vault, sealBlob, entries),
                     result: null,
                 }));
             } catch (error) {
@@ -249,27 +286,39 @@ export function useRecoveryFlow(
     );
 
     const seal = useCallback(
-        (methodId: string, subjects: readonly Subject[], threshold: number) =>
-            runSeal(methodId, subjects, threshold, null),
+        (methodId: string, subjects: readonly Subject[], threshold: number, timelockSeconds: number) =>
+            runSeal(methodId, subjects, threshold, null, timelockSeconds),
         [runSeal],
     );
 
     /** A fresh paid ceremony under a new vaultId. The old gate stands until this one commits. */
     const reseal = useCallback(
-        (methodId: string, subjects: readonly Subject[], threshold: number) =>
-            runSeal(methodId, subjects, threshold, active),
+        (methodId: string, subjects: readonly Subject[], threshold: number, timelockSeconds: number) =>
+            runSeal(methodId, subjects, threshold, active, timelockSeconds),
         [active, runSeal],
     );
 
 
     const recover = useCallback(
-        async (selected: readonly number[]) => {
-            const vault = active;
-            const chainRecord = vault?.chains.find((row) => row.chainId === chain.id);
+        async (
+            vault: VaultRecord,
+            selected: readonly number[],
+            /**
+             * The seed control is handed to. Its keys sign nothing here — they are the *destination*
+             * — but the intents submitted below name them, so it has to be decided before the
+             * ceremony rather than after.
+             */
+            ownerMnemonic: string,
+        ) => {
+            // The vault is a **parameter**, not "the active wallet's". Recovery is for the case
+            // where the seed is gone, so the vault being opened usually belongs to a wallet this
+            // browser can no longer derive — and reading it off the active seed made exactly that
+            // vault unreachable. See `recoveryCatalogue.ts`.
+            //
             // The method the vault records, never "whatever is current": a gate can only be opened
             // by the ceremony that built it, and the registry may well offer several.
-            const method = vault === null ? null : (methods?.get(vault.gate.methodId) ?? null);
-            if (vault === null || chainRecord === undefined || method === null) return;
+            const method = methods?.get(vault.gate.methodId) ?? null;
+            if (method === null) return;
 
             setState((prev) => ({
                 ...prev,
@@ -287,13 +336,12 @@ export function useRecoveryFlow(
             }));
 
             try {
-                const outcome = await recoverVault(bindings.stores, {
+                const outcome = await recoverAllChains(bindings.stores, {
                     method,
                     gate: vault.gate,
                     selected,
-                    chain,
                     vault,
-                    chainRecord,
+                    chains: bindings.chains,
                     ...(state.sealFile ? { seal: state.sealFile.seal } : {}),
                     onProgress: noteRecover,
                     onSubjectProgress: (index, message) =>
@@ -312,16 +360,102 @@ export function useRecoveryFlow(
                         })),
                 });
 
-                // The key is *assembled* — not never-assembled, whatever a marketing page might
+                // The keys are *assembled* — not never-assembled, whatever a marketing page might
                 // say — and in `rawKey` mode this demo holds the bytes so it can show them and sign
                 // the on-chain handover with them. They live until `forgetKey()` or a reload; there
                 // is no zeroizing scope in this mode, which is the cost of being able to look.
-                const material =
-                    outcome.authority.kind === "rawKey" ? outcome.authority.material : null;
-
                 noteRecover(`openRecords ${selected.length} shares combined`);
-                noteRecover(`recovered  ${chainRecord.algorithm} ${outcome.publicKeyHex}`);
-                const spent = { at: Date.now(), reason: outcome.spent.reason };
+                // The line this whole change exists to be able to print.
+                noteRecover(
+                    `ceremony   ${outcome.ceremonies} for ${outcome.keys.length} chain` +
+                        `${outcome.keys.length === 1 ? "" : "s"}`,
+                );
+                for (const key of outcome.keys) {
+                    noteRecover(
+                        key.failure === null
+                            ? `recovered  ${key.chainId} ${key.chainRecord.algorithm} ${key.publicKeyHex}`
+                            : `failed     ${key.chainId} ${key.failure}`,
+                    );
+                }
+                if (outcome.spent === null) {
+                    throw new Error(
+                        "No chain in this vault could be opened. Each chain's reason is in the transcript.",
+                    );
+                }
+                const spentSeal = outcome.spent;
+                const spent = { at: Date.now(), reason: spentSeal.reason };
+                // Saved now, before anything below can fail. It used to live only in React state, so
+                // the next reload read the vault as unspent and its seed as "recovery ready".
+                await bindings.vaults.put({
+                    ...((await bindings.vaults.get(vault.vaultId)) ?? vault),
+                    spent,
+                });
+
+                /**
+                 * Submit every chain's intent **now**, while the keys are live, then wipe them.
+                 *
+                 * This is the only step that needs them. A timelock can outlast the session, and
+                 * the two alternatives are both bad: hold the keys open and a closed tab costs the
+                 * recovery, or write them to disk and the demo does the one thing §12 forbids. A
+                 * signed intent authorises one handover to one named owner and is worth nothing
+                 * else, so it is what gets stored — and `executeRecovery` needs no signature later,
+                 * because by then the timelock is the authority.
+                 *
+                 * It matters more than it sounds: the vault is spent the moment it opened, so a
+                 * recovery that loses its keys mid-timelock cannot be redone without paying again.
+                 */
+                const owner = await deriveWallet(bindings.chains, ownerMnemonic);
+                const signingKeys = destinationsFor(ownerMnemonic);
+                const submitted = await submitAll(
+                    {
+                        chains: bindings.chains,
+                        store: bindings.handovers,
+                        handoverFor: (chainId) => handoverFor(bindings, chainId),
+                        serverUrl: bindings.env.serverUrl,
+                        onProgress: noteRecover,
+                    },
+                    {
+                        vaultId: vault.vaultId,
+                        keys: outcome.keys,
+                        ownerWalletId: seedFingerprint(ownerMnemonic),
+                        destinationFor: (chainId) => {
+                            // Two different addresses, and conflating them is the bug. `newOwner`
+                            // is a plain key the destination seed can sign with, because the
+                            // account has to answer to *something*. `sweepTo` is that seed's own
+                            // protected account, which is where the value should end up.
+                            const signing = signingKeys.find((row) => row.chainId === chainId);
+                            const protectedAccount = owner.accounts[chainId]?.[0]?.address;
+                            if (signing === undefined || protectedAccount === undefined) return null;
+                            return { newOwner: signing.address, sweepTo: protectedAccount };
+                        },
+                    },
+                );
+                /**
+                 * Wiped only if every chain got its intent in.
+                 *
+                 * This is the one place where tidiness and correctness point opposite ways. The
+                 * keys should not outlive their use — but a chain whose submit failed has no signed
+                 * intent, and the vault is already spent, so wiping now would destroy the only
+                 * thing that could still move that account. There is no second ceremony to fall
+                 * back on: `recover()` marked the vault spent before this line ran.
+                 *
+                 * So a failure keeps them, in memory, until the user retries or closes the dialog —
+                 * and the dialog says so, rather than leaving a wiped key looking like a transient
+                 * network error.
+                 */
+                const stuck = submitted.filter((record) => record.stage === "failed");
+                const unsubmitted = stuck.map((record) => record.chainId);
+                if (stuck.length === 0) {
+                    outcome.wipe();
+                } else {
+                    noteRecover(
+                        `keys       held for ${stuck.length} chain${stuck.length === 1 ? "" : "s"} ` +
+                            "that did not submit — retry before closing, or the recovery is lost",
+                    );
+                }
+                // The SDK's own statement of what this recovery cost, verbatim, in the transcript. The
+                // dialog shows a short status line instead; this keeps the full sentence reported.
+                noteRecover(`spent       ${spentSeal.reason}`);
                 setState((prev) => ({
                     ...prev,
                     phase: "recovered",
@@ -338,10 +472,10 @@ export function useRecoveryFlow(
                     result: {
                         contacted: outcome.contacted,
                         untouched: outcome.untouched,
-                        algorithm: chainRecord.algorithm,
-                        publicKeyHex: outcome.publicKeyHex,
-                        material,
-                        spentReason: outcome.spent.reason,
+                        keys: outcome.keys,
+                        ceremonies: outcome.ceremonies,
+                        unsubmitted,
+                        spentReason: spentSeal.reason,
                     },
                 }));
             } catch (error) {
@@ -353,7 +487,7 @@ export function useRecoveryFlow(
                 }));
             }
         },
-        [active, bindings, chain, methods, noteRecover, state.sealFile],
+        [bindings, methods, noteRecover, state.sealFile],
     );
 
     /**
@@ -365,9 +499,17 @@ export function useRecoveryFlow(
      */
     const forgetKey = useCallback(() => {
         setState((prev) => {
-            if (prev.result?.material == null) return prev;
-            prev.result.material.fill(0);
-            return { ...prev, result: { ...prev.result, material: null } };
+            if (prev.result === null) return prev;
+            // Every chain's, not the one on screen. A recovery now yields a key per chain, and
+            // dropping only the visible one would leave the rest reachable from app state.
+            for (const key of prev.result.keys) key.material?.fill(0);
+            return {
+                ...prev,
+                result: {
+                    ...prev.result,
+                    keys: prev.result.keys.map((key) => ({ ...key, material: null })),
+                },
+            };
         });
     }, []);
 
@@ -382,13 +524,80 @@ export function useRecoveryFlow(
         });
     }, []);
 
+    /**
+     * Try the chains that did not submit again, with the keys still in memory.
+     *
+     * The only path back from a relayer that was down at exactly the wrong moment. It needs the keys
+     * and therefore this session — which is why `recover` keeps them when a submit fails, and why
+     * the dialog cannot be closed past a failure without saying what closing costs.
+     */
+    const retryHandover = useCallback(
+        async (vault: VaultRecord, ownerMnemonic: string) => {
+            const keys = state.result?.keys;
+            if (keys === undefined) return;
+            const owner = await deriveWallet(bindings.chains, ownerMnemonic);
+            const signingKeys = destinationsFor(ownerMnemonic);
+            const stuck = keys.filter((key) => key.material !== null);
+            const submitted = await submitAll(
+                {
+                    chains: bindings.chains,
+                    store: bindings.handovers,
+                    handoverFor: (chainId) => handoverFor(bindings, chainId),
+                    serverUrl: bindings.env.serverUrl,
+                    onProgress: noteRecover,
+                },
+                {
+                    vaultId: vault.vaultId,
+                    keys: stuck,
+                    ownerWalletId: seedFingerprint(ownerMnemonic),
+                    destinationFor: (chainId) => {
+                        const signing = signingKeys.find((row) => row.chainId === chainId);
+                        const protectedAccount = owner.accounts[chainId]?.[0]?.address;
+                        if (signing === undefined || protectedAccount === undefined) return null;
+                        return { newOwner: signing.address, sweepTo: protectedAccount };
+                    },
+                },
+            );
+            const stillStuck = submitted
+                .filter((record) => record.stage === "failed")
+                .map((record) => record.chainId);
+            if (stillStuck.length === 0) {
+                for (const key of stuck) key.material?.fill(0);
+                noteRecover("keys       every chain submitted; the recovered keys are wiped");
+            }
+            setState((prev) =>
+                prev.result === null
+                    ? prev
+                    : { ...prev, result: { ...prev.result, unsubmitted: stillStuck } },
+            );
+            return submitted;
+        },
+        [bindings, noteRecover, state.result],
+    );
+
+    /**
+     * Take a seal file the user picked, and reload so the vault appears in the list.
+     *
+     * On the flow rather than in the card because the ledger is this hook's, and a card that wrote
+     * to storage behind it would leave the two disagreeing until something else happened to reload.
+     */
+    const importSeal = useCallback(
+        async (text: string) => {
+            const file = parseSealFile(text);
+            const outcome = await importSealFile(bindings.stores, file);
+            await reload();
+            return { file, ...outcome };
+        },
+        [bindings, reload],
+    );
+
     const clearError = useCallback(() => {
         setState((prev) => (prev.error === null ? prev : { ...prev, error: null }));
     }, []);
 
     return useMemo(
-        () => ({ state, active, vault, covers, vaultFor, seal, reseal, recover, reload, forgetKey, answerPrompt, clearError }),
-        [state, active, vault, covers, vaultFor, seal, reseal, recover, reload, forgetKey, answerPrompt, clearError],
+        () => ({ state, active, vault: walletVault, covers, vaultFor, seal, reseal, recover, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError }),
+        [state, active, walletVault, covers, vaultFor, seal, reseal, recover, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError],
     );
 }
 

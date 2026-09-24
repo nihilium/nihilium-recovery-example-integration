@@ -66,7 +66,8 @@ export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModul
 
     return {
         id: "solana-devnet",
-        label: "Solana · devnet",
+        label: "Solana",
+        network: "Devnet",
         icon: "solana",
         // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
         // name — `solana:devnet` is not a chain id, it just looks like one, and it would have sealed
@@ -125,6 +126,10 @@ export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModul
             }
         },
 
+        // A Solana address *is* its public key, so this is an encoding rather than a hash — and
+        // exactly why a lost key here is a lost address, which is what the vault exists to sidestep.
+        addressOfPublicKey: (publicKey) => toSolanaAddress(publicKey),
+
         formatAddress(address, style = "short") {
             return style === "full" ? address : `${address.slice(0, 4)}…${address.slice(-4)}`;
         },
@@ -169,10 +174,10 @@ export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModul
                 // about an account the user has never been shown.
                 const held = BigInt(await connection.getBalance(addresses.vaultSol, "confirmed"));
                 if (held < amount) {
+                    // The owner key's balance is not the vault's: only lamports in `vault_sol` can be sent.
                     throw new Error(
-                        `This vault holds ${held} lamports and the transfer asks for ${amount}. ` +
-                            `Send SOL to ${addresses.vaultSol.toBase58()} to protect it first — ` +
-                            "the owner key's balance is not the vault's.",
+                        `Vault holds ${held} lamports; the transfer needs ${amount}. ` +
+                        `Send SOL to ${addresses.vaultSol.toBase58()}.`,
                     );
                 }
 

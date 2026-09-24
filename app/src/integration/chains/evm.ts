@@ -61,7 +61,8 @@ export function createEvmSepoliaChain(options: EvmChainOptions): ChainModule {
 
     return {
         id: "evm-sepolia",
-        label: "EVM · Sepolia",
+        label: "Ethereum",
+        network: "Sepolia",
         icon: "ethereum",
         // CAIP-2, pinned. An HKDF input — see `ChainModule.namespace`.
         namespace: "eip155:11155111",
@@ -115,6 +116,10 @@ export function createEvmSepoliaChain(options: EvmChainOptions): ChainModule {
         isValidAddress(value) {
             return /^0x[0-9a-fA-F]{40}$/.test(value.trim());
         },
+
+        // The same derivation the SDK's key adapter uses, so a recovered key's address is the one
+        // `OwnableValidator` will compare against — not a lookalike computed another way.
+        addressOfPublicKey: (publicKey) => toEvmAddress(publicKey),
 
         formatAddress(address, style = "short") {
             return style === "full" ? address : `${address.slice(0, 6)}…${address.slice(-4)}`;

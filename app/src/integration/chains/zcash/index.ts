@@ -36,7 +36,8 @@ export function createZcashTestnetChain(): ChainModule {
 
     return {
         id: "zcash-testnet",
-        label: "Zcash · testnet",
+        label: "Zcash",
+        network: "Testnet · simulated",
         icon: "zcash",
         // Pinned, and note this one is not a registered CAIP-2 namespace at all. Whatever string
         // sits here is an HKDF input forever; picking it is a decision, not a formatting choice.
@@ -79,6 +80,11 @@ export function createZcashTestnetChain(): ChainModule {
                 return false;
             }
         },
+
+        // Why this is on the chain module and not derived from the curve: Zcash is secp256k1, same
+        // as EVM, and shares none of its address format. A helper that branched on `algorithm` would
+        // hand back a `0x…` string here and nothing would notice.
+        addressOfPublicKey: (publicKey) => toZcashTransparentAddress(publicKey, "test"),
 
         formatAddress(address, style = "short") {
             return style === "full" ? address : `${address.slice(0, 6)}…${address.slice(-4)}`;

@@ -86,10 +86,10 @@ export function createVaultProgram(params: {
     // address book rather than trusted: a mismatch means this client would talk to a program the
     // digests were never built for.
     if (recoveryVaultIdl.address !== programId.toBase58()) {
+        // Otherwise every digest is computed against the wrong program.
         throw new Error(
-            `The bundled IDL is for program ${recoveryVaultIdl.address}, but ${params.cluster} ` +
-                `resolves to ${programId.toBase58()}. One of the two is from a different build, and ` +
-                "every digest would be computed against the wrong program.",
+            `Bundled IDL is for ${recoveryVaultIdl.address}; ${params.cluster} resolves to ` +
+                `${programId.toBase58()}. Rebuild so they match.`,
         );
     }
 

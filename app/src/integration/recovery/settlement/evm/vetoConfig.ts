@@ -62,9 +62,9 @@ export interface SolidityVetoConfig {
 function addressOf(authority: Authority): `0x${string}` {
     // The SDK's `Authority.id` is namespace-scoped; on EVM it is the address itself.
     if (!/^0x[0-9a-fA-F]{40}$/.test(authority.id)) {
+        // A config for another namespace cannot be encoded for an eip155 module.
         throw new Error(
-            `Veto authority "${authority.id}" is not an EVM address. A veto config for ` +
-                `${authority.namespace} cannot be encoded for an eip155 module.`,
+            `Veto authority "${authority.id}" is not an EVM address.`,
         );
     }
     return authority.id as `0x${string}`;
@@ -159,11 +159,10 @@ export const MAX_RESUME_MEMBERS_SOLANA = 8;
 export function assertResumeQuorumPortable(config: VetoConfig): void {
     const members = config.resumeQuorum.members.length;
     if (members > MAX_RESUME_MEMBERS_SOLANA) {
+        // k detached signatures must fit one 1232-byte transaction. A larger quorum installs on EVM and
+        // then cannot be registered the moment a Solana chain joins the vault.
         throw new Error(
-            `A resume quorum of ${members} cannot be registered on Solana, which caps it at ` +
-                `${MAX_RESUME_MEMBERS_SOLANA}: k detached signatures have to fit in one 1232-byte ` +
-                "transaction. It would seal and install on EVM and then be unregistrable the moment " +
-                "a Solana chain joined this vault.",
+            `Resume quorum of ${members} exceeds Solana's cap of ${MAX_RESUME_MEMBERS_SOLANA}.`,
         );
     }
 }

@@ -51,8 +51,18 @@ const SOLANA = stubChain({
     keyAdapter: new SolanaKeyAdapter(),
 });
 
-function account(accountId: string): DerivedAccount {
-    return { accountId, address: accountId, label: "a", derivationPath: "m", index: 0 } as DerivedAccount;
+function account(accountId: string, signerAddress = `signer-of-${accountId}`): DerivedAccount {
+    return {
+        accountId,
+        address: accountId,
+        label: "a",
+        derivationPath: "m",
+        index: 0,
+        // Present because `VaultChainRecord.signerAddress` records it: on Solana the account is a
+        // PDA seeded by its creator, and a recovery run from a different seed cannot rebuild the
+        // addresses without knowing which key that was.
+        signer: { address: signerAddress },
+    } as DerivedAccount;
 }
 
 const EVM_ACCOUNT = account("0xCfC4C807Ed404ae1a65fbe0EdaA09EF002E75838");
@@ -339,5 +349,47 @@ describe("a chain whose settlement must sign its own registration", () => {
         await expect(
             addChainToVault(stores, { method, vault: once, chain: SOLANA, account: SOLANA_ACCOUNT }),
         ).rejects.toThrow(/already in vault/);
+    });
+});
+
+describe("the timelock chosen at seal time", () => {
+    // Written into each chain's veto config at protect time, so it has to survive every later
+    // rewrite of the record — `addChain()` included, which is how a second chain joins the vault.
+    it("is stored on the vault and kept when a chain is added", async () => {
+        const { method, stores, subjects } = setup(`timelock-${crypto.randomUUID()}`);
+        const { vault } = await sealVault(stores, {
+            method,
+            subjects,
+            threshold: 2,
+            chain: EVM,
+            account: EVM_ACCOUNT,
+            vaultId: "vault-with-a-day",
+            walletId: WALLET,
+            timelockSeconds: 86_400,
+        });
+        expect(vault.timelockSeconds).toBe(86_400);
+
+        const grown = await addChainToVault(stores, {
+            method,
+            vault,
+            chain: SOLANA,
+            account: SOLANA_ACCOUNT,
+        });
+        expect(grown.timelockSeconds).toBe(86_400);
+        expect((await stores.vaults.get("vault-with-a-day"))?.timelockSeconds).toBe(86_400);
+    });
+
+    it("is absent when none was chosen, so protect falls back to the operator's", async () => {
+        const { method, stores, subjects } = setup(`timelock-${crypto.randomUUID()}`);
+        const { vault } = await sealVault(stores, {
+            method,
+            subjects,
+            threshold: 2,
+            chain: EVM,
+            account: EVM_ACCOUNT,
+            vaultId: "vault-default",
+            walletId: WALLET,
+        });
+        expect(vault.timelockSeconds).toBeUndefined();
     });
 });

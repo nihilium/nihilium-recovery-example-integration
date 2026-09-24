@@ -58,12 +58,13 @@ describe("the method catalogue", () => {
         expect(surprising, "a method that works should not be greyed out").toEqual([]);
     });
 
-    it("says why each unwired method is unwired, and names the package", () => {
+    it("gives each unwired method a status line", () => {
         for (const offer of UNWIRED_OFFERS) {
-            // A disabled control with no reason is a dead end, and the reason a reader can act on is
-            // which adapter exists and what integrating it would still take.
-            expect(offer.unavailable, `${offer.id} is greyed out with no reason`).toBeDefined();
-            expect(offer.unavailable).toMatch(/@nihilium\/recovery-condition-/);
+            // A disabled control with nothing beside it reads as a bug. The screen states the fact;
+            // which package exists and what wiring it would take is in `catalogue.ts`'s comment.
+            expect(offer.unavailable, `${offer.id} is greyed out with no status`).toBe(
+                "Not available in this demo.",
+            );
         }
     });
 });

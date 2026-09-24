@@ -9,7 +9,6 @@ import { formatAmount } from "../integration/chains/amounts.js";
 import { useBalances } from "../demo/useBalances.js";
 import { AddressChip } from "./AddressChip.js";
 import { Transcript } from "./Transcript.js";
-import { Explain } from "./Explain.js";
 import { ProtectionBadge } from "./ProtectionBadge.js";
 import type { Settlement } from "../demo/useSettlement.js";
 import { protectionOf } from "./protection.js";
@@ -84,22 +83,24 @@ export function WalletCard({
                     <ProtectionBadge state={state} />
                 </div>
 
-                <Explain>
-                    <p className="mono">
-                        {chain.namespace} · tier {chain.tier} · {chain.keyAdapter.algorithm}
-                    </p>
-                    <p>
-                        The namespace and the tier are KDF inputs, pinned at seal time and never
-                        recomputed from the registry. The tier decides which veto capabilities exist at
-                        all.
-                    </p>
-                </Explain>
 
                 {accounts.length === 0 && <p className="muted">Deriving…</p>}
 
                 {accounts.map((account) => {
                     const balance = balances[account.address];
-                    const explorer = chain.explorerUrl({ kind: "address", value: account.address });
+                    /**
+                     * The account recovery protects, and where its value is sent, are not always
+                     * the same address. On EVM both are the Safe. On Solana the smart account is a
+                     * program-owned vault (`accountId`) and its SOL sits in a separate keyless PDA
+                     * that only the program can pay out of — so showing that alone, with an
+                     * explorer link that calls it a "System Account", made a recoverable vault look
+                     * like a plain wallet. Both are shown, each named for what it is. The deposit
+                     * address stays the one to send to: SOL sent to the vault itself is stranded,
+                     * since `execute_transfer` only pays out of the deposit account.
+                     */
+                    const split = account.accountId !== undefined && account.accountId !== account.address;
+                    const identity = split ? account.accountId! : account.address;
+                    const explorer = chain.explorerUrl({ kind: "address", value: identity });
                     return (
                         <div className="account-row" key={account.address}>
                             <div className="account-row__labels">
@@ -107,8 +108,8 @@ export function WalletCard({
                                 <span className="muted mono">{account.derivationPath}</span>
                             </div>
                             <AddressChip
-                                value={account.address}
-                                display={chain.formatAddress(account.address, "short")}
+                                value={identity}
+                                display={chain.formatAddress(identity, "short")}
                             />
                             <span className="account-row__balance mono">
                                 {balance === undefined || balance === "loading"
@@ -125,29 +126,19 @@ export function WalletCard({
                                     explorer
                                 </TextLink>
                             )}
+                            {split && (
+                                <div className="account-row__deposit">
+                                    <span className="muted">deposit address</span>
+                                    <AddressChip
+                                        value={account.address}
+                                        display={chain.formatAddress(account.address, "short")}
+                                    />
+                                </div>
+                            )}
                         </div>
                     );
                 })}
 
-                {chain.id === "solana-devnet" && (
-                    <Explain>
-                        <p>
-                            A Solana keypair&apos;s address <em>is</em> its public key, so a lost key is
-                            a permanently lost address — there is no code to install at it and nothing
-                            to recover. That is why recovery here covers a{" "}
-                            <strong>program-owned vault</strong> instead: a recovery rotates the
-                            vault&apos;s owner to a key you still hold, and everything inside comes with
-                            it. Anything left at the owner key does not.
-                        </p>
-                            <p>
-                                The vault is two accounts. The one above holds the lamports and is
-                                where you send; the one recovery is bound to — its{" "}
-                                <code>accountId</code>, and a KDF input — is{" "}
-                                <code className="mono">{first?.accountId}</code>. Nothing can
-                                move value out of that one, so it is never offered as a destination.
-                            </p>
-                    </Explain>
-                )}
 
                 {/* One vault, every chain. A gate exists but has never been extended to this chain,
                     so the honest next step is not a second ceremony — it is `addChain()`, which is
@@ -218,14 +209,6 @@ export function WalletCard({
                             <StatusMessage tone="error">{settlement.state.error}</StatusMessage>
                         )}
 
-                        <Explain>
-                            <p>
-                                Only an account can install its own module, so this is a UserOp signed
-                                by the wallet&apos;s own key and paid for by the account — the relayer
-                                cannot do it. That is the opposite of the recovery itself, where the
-                                authority is the signature and anyone with gas may send it.
-                            </p>
-                        </Explain>
                     </div>
                 )}
 
@@ -244,16 +227,6 @@ export function WalletCard({
                     )}
                 </div>
 
-                {chain.settlement === null && (
-                    <Explain>
-                        <p>
-                            No settlement binding yet: a recovery key derived for this chain is
-                            registered nowhere, so it protects nothing. That half arrives with the
-                            on-chain milestone — and on{" "}
-                            {chain.tier === "script" ? "this chain" : "Solana"} it stays simulated.
-                        </p>
-                    </Explain>
-                )}
             </div>
 
             {/* Mounted only while open, and never moved — see `RecoveryCard` for the bug that rule

@@ -1,5 +1,5 @@
 /**
- * The key a recovery produced, as rows.
+ * The keys a recovery produced — one block per chain — and the count of ceremonies that bought them.
  *
  * A wallet that says "recovered" and shows nothing is asking to be taken on trust. This is the thing
  * that came out of the ceremony, so it is shown: the curve, the public half, the address the module
@@ -9,49 +9,93 @@
  * front page; showing it makes *"the key is assembled"* a thing you can look at rather than a claim
  * to believe. It is behind a Reveal because a key on screen ends up in screenshots and shoulder
  * views, and a demo is exactly where someone records their screen.
+ *
+ * **Plural, and the plurality is the lesson.** One vault covers many chains, so one ceremony returns
+ * a key for each — and the ceremony count is printed beside them, because "two keys, one round of
+ * email" is the claim this repo is built to make and a number is the only way to show it. A chain
+ * that failed gets a row saying so rather than being dropped: a silently shorter list would read as
+ * a vault that never held it.
  */
 import { useState } from "react";
-import type { KeyAlgorithm } from "@nihilium/recovery-core";
+import type { RecoveredChainKey } from "../integration/recovery/recoverAll.js";
 import { AddressChip } from "./AddressChip.js";
-import { Explain } from "./Explain.js";
+import { Heading, StatusMessage } from "./ds.js";
 
-export function RecoveredKey({
-    algorithm,
-    publicKeyHex,
-    address,
-    material,
-    matchesVault,
+export function RecoveredKeys({
+    keys,
+    ceremonies,
     contacted,
     untouched,
 }: {
-    algorithm: KeyAlgorithm;
-    publicKeyHex: string;
-    /** The chain-native address form, where the chain has one. */
-    address: string | null;
-    /** `null` once the dialog has dropped it, or in capability mode. */
-    material: Uint8Array | null;
-    matchesVault: boolean;
+    keys: readonly RecoveredChainKey[];
+    /** How many rounds of guardian email this cost. One, for any number of chains. */
+    ceremonies: number;
     contacted: readonly number[];
     untouched: readonly number[];
 }) {
-    const [revealed, setRevealed] = useState(false);
+    const opened = keys.filter((key) => key.failure === null);
 
     return (
         <div className="stack">
+            {/* The count, and nothing after it. The clause that used to follow — that the
+                guardians were asked once for the whole vault — is the lesson this screen teaches,
+                not a fact about this run, and `docs/` is where it belongs. */}
+            <StatusMessage tone="success">
+                {opened.length} chain{opened.length === 1 ? "" : "s"} recovered from {ceremonies}{" "}
+                ceremon{ceremonies === 1 ? "y" : "ies"}.
+            </StatusMessage>
+
+            {keys.map((key) => (
+                <ChainKey key={key.chainId} entry={key} />
+            ))}
+
+            <dl className="rows">
+                <dt>contacted</dt>
+                <dd>{contacted.map((i) => `#${i}`).join(", ") || "—"}</dd>
+
+                <dt>not contacted</dt>
+                <dd>{untouched.map((i) => `#${i}`).join(", ") || "—"}</dd>
+            </dl>
+
+        </div>
+    );
+}
+
+function ChainKey({ entry }: { entry: RecoveredChainKey }) {
+    const [revealed, setRevealed] = useState(false);
+
+    if (entry.failure !== null) {
+        return (
+            <div className="stack">
+                <Heading level={4}>{entry.chainLabel}</Heading>
+                {/* A row, not an omission. A chain quietly missing from this list would read as a
+                    vault that never covered it — and the fix for that is a second paid ceremony. */}
+                <StatusMessage tone="error">{entry.failure}</StatusMessage>
+            </div>
+        );
+    }
+
+    const material = entry.material;
+    return (
+        <div className="stack">
+            <Heading level={4}>{entry.chainLabel}</Heading>
             <dl className="rows">
                 <dt>algorithm</dt>
-                <dd>{algorithm}</dd>
+                <dd>{entry.chainRecord.algorithm}</dd>
 
                 <dt>public key</dt>
                 <dd>
-                    <AddressChip value={publicKeyHex} display={truncate(publicKeyHex)} />
+                    <AddressChip
+                        value={entry.publicKeyHex!}
+                        display={truncate(entry.publicKeyHex!)}
+                    />
                 </dd>
 
-                {address !== null && (
+                {entry.address !== null && (
                     <>
                         <dt>address</dt>
                         <dd>
-                            <AddressChip value={address} display={truncate(address)} />
+                            <AddressChip value={entry.address} display={truncate(entry.address)} />
                         </dd>
                     </>
                 )}
@@ -70,36 +114,11 @@ export function RecoveredKey({
                 </dd>
 
                 <dt>matches</dt>
-                <dd className="rows__prose">
-                    {matchesVault ? (
-                        <>✓ the key this vault registered</>
-                    ) : (
-                        // Unreachable in practice — `assertRecoveredKeyMatches` throws first — and
-                        // rendered anyway, because the one failure this must never show as a tick is
-                        // the one nothing else in the stack can detect.
-                        <strong>✗ not the key this vault registered</strong>
-                    )}
-                </dd>
-
-                <dt>contacted</dt>
-                <dd>{contacted.map((i) => `#${i}`).join(", ") || "—"}</dd>
-
-                <dt>not contacted</dt>
-                <dd>{untouched.map((i) => `#${i}`).join(", ") || "—"}</dd>
+                {/* `assertRecoveredKeyMatches` throws before a mismatch could reach here, so this is
+                    always a tick — and it is rendered because a wrong epoch is the one failure
+                    nothing else in the stack can detect, and silence about it would be worse. */}
+                <dd className="rows__prose">✓ the key this vault registered</dd>
             </dl>
-
-            <Explain>
-                <p>
-                    The guardians under <em>not contacted</em> were never asked — their share was not
-                    requested and no email reached them. That is the property a k-of-n buys: not a
-                    vote, an absence.
-                </p>
-                <p>
-                    This key is held in the clear for as long as this dialog is open, because the
-                    on-chain handover cannot be signed without it. A production wallet should take the
-                    scoped capability instead and let it zeroize.
-                </p>
-            </Explain>
         </div>
     );
 }

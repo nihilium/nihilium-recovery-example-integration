@@ -22,6 +22,7 @@ import { Router } from "express";
 import {
     formatEther,
     getAddress,
+    type Account,
     type Address,
     type Hex,
     type PublicClient,
@@ -42,7 +43,17 @@ export interface IntentPayload {
 export interface RelayerDeps {
     publicClient: PublicClient;
     walletClient: WalletClient;
-    relayer: Address;
+    /**
+     * The **account object**, never the address.
+     *
+     * viem decides how to send from this: an `Account` is signed locally and broadcast with
+     * `eth_sendRawTransaction`, while a bare address is treated as a JSON-RPC account and sent with
+     * `eth_sendTransaction` — asking the *node* to sign. A public endpoint holds no keys, so that
+     * path dies with "unknown account", and the error names the RPC method rather than the cause.
+     * The wallet client is already bound to this account; passing the address here silently
+     * overrode it.
+     */
+    relayer: Account;
     moduleAddress: Address;
     /** Ceiling on `/fund`, so a demo faucet cannot be drained by a loop. */
     fundMaxWei: bigint;
@@ -102,7 +113,7 @@ export function createRelayerRouter(deps: RelayerDeps): Router {
     router.get("/config", (_req, res) => {
         res.json({
             recoveryModuleAddress: deps.moduleAddress,
-            relayer: deps.relayer,
+            relayer: deps.relayer.address,
             pauseAuthority: deps.vetoConfig.pauseAuthority,
             resumeMembers: deps.vetoConfig.resumeMembers,
             resumeThreshold: deps.vetoConfig.resumeThreshold,
@@ -209,9 +220,24 @@ export function createRelayerRouter(deps: RelayerDeps): Router {
  * message buries it under the request body. Returning the whole thing to a browser is how a demo
  * ends up rendering a page of hex.
  */
+/**
+ * What actually went wrong, in enough detail to act on.
+ *
+ * `shortMessage` alone is how a relayer failure reaches the screen as "Invalid parameters were
+ * provided to the RPC method" — true, unhelpful, and naming neither the method nor the parameter.
+ * viem puts that in `metaMessages` and `details`, so they go too: an error a user can only
+ * screenshot is an error nobody can fix.
+ */
 function reasonOf(error: unknown): string {
-    if (typeof error === "object" && error !== null && "shortMessage" in error) {
-        return String((error as { shortMessage: unknown }).shortMessage);
+    if (typeof error !== "object" || error === null) {
+        return error instanceof Error ? error.message : String(error);
     }
-    return error instanceof Error ? error.message : String(error);
+    const viem = error as { shortMessage?: unknown; metaMessages?: unknown; details?: unknown };
+    if (viem.shortMessage === undefined) {
+        return error instanceof Error ? error.message : String(error);
+    }
+    const parts = [String(viem.shortMessage)];
+    if (Array.isArray(viem.metaMessages)) parts.push(...viem.metaMessages.map(String));
+    if (typeof viem.details === "string" && viem.details.length > 0) parts.push(viem.details);
+    return parts.join(" | ");
 }

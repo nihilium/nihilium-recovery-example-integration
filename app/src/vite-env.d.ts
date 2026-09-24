@@ -19,6 +19,10 @@ interface ImportMetaEnv {
     /** Nihilium's processor cohort, not the guardian quorum. */
     readonly VITE_NIHILIUM_THRESHOLD?: string;
     readonly VITE_NIHILIUM_PROCESSOR_COUNT?: string;
+    /** Ethereum mainnet, read for gas and token prices only — see `integration/costs/prices.ts`. */
+    readonly VITE_MAINNET_RPC_URL?: string;
+    /** Arbitrum One, read for Chainlink's SOL/USD only. */
+    readonly VITE_ARBITRUM_RPC_URL?: string;
 }
 
 interface ImportMeta {

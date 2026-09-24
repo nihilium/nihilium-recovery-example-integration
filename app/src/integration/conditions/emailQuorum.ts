@@ -35,28 +35,25 @@ import type {
 export const EMAIL_QUORUM_METHOD_ID = "email-quorum";
 
 /**
- * What each gate survives, which is how a k-of-n is explained to someone who does not want a lecture
- * on secret sharing. The number never renders without this line beside it.
+ * The gates offered. The label is the whole of what the picker shows: "2 of 3 to recover" is the
+ * status, and what losing a guardian costs is something the reader can work out from it.
  */
 const PRESETS = [
     {
         threshold: 1,
         subjectCount: 1,
         label: "1 address",
-        survives: "Survives nothing — that single inbox is the whole gate.",
     },
     {
         threshold: 2,
         subjectCount: 3,
         label: "2 of 3 to recover",
-        survives: "Survives losing 1 of them.",
         recommended: true,
     },
     {
         threshold: 3,
         subjectCount: 5,
         label: "3 of 5 to recover",
-        survives: "Survives losing 2 of them.",
     },
 ] as const;
 
@@ -75,13 +72,11 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
         id: EMAIL_QUORUM_METHOD_ID,
         label: "Email guardians",
         icon: "UserGroup",
-        blurb:
-            "Name a few email addresses. Recovery needs any k of them to prove control of their " +
-            "inbox — nobody needs to hold a key, and no one of them can act alone.",
+        blurb: "Guardians recover by proving control of their inbox.",
         limits: [
             "Covers loss, not theft: it restores access to an owner who lost it, and does not defend " +
                 "a wallet whose seed someone else already holds.",
-            "Guardians must be different people, or the redundancy is decoration.",
+            "Guardians must be different people.",
             "A recovery opens the whole vault, so every chain it protects is exposed to whoever ran it.",
         ],
         mode: options.mode,
@@ -94,15 +89,12 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
             paid: options.paid,
             contactsHumansAtSetup: false,
             contactsHumansAtRecovery: true,
-            describe: ({ threshold, subjectCount }) =>
+            // A price before the button that spends it: the count and the unit, nothing else. Which
+            // step contacts people is a property of the method, recorded in the two flags above.
+            describe: ({ subjectCount }) =>
                 options.paid
-                    ? `Sealing is paid, once per guardian — ${subjectCount} ` +
-                      `${subjectCount === 1 ? "seal" : "seals"} for this choice. It sends no email: the ` +
-                      `human round trip happens only at recovery, and only for the ${threshold} you ` +
-                      "name then."
-                    : `Simulated: ${subjectCount} ceremonies, free and instant, and no email is ever ` +
-                      `sent. A live run would bill one seal per guardian and, at recovery, wait on ` +
-                      `${threshold} humans.`,
+                    ? `Paid: ${subjectCount} ${subjectCount === 1 ? "seal" : "seals"}, one per guardian.`
+                    : `Simulated: ${subjectCount} ceremonies, free.`,
         },
 
         checkGate({ subjects, threshold }): readonly SubjectIssue[] {
@@ -115,17 +107,14 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
             }
             if (threshold > n) {
                 issues.push({
-                    message: `${threshold} of ${n} could never be satisfied — there are only ${n}.`,
+                    message: `${threshold} of ${n} is impossible. Lower the threshold to ${n} or fewer.`,
                 });
             }
             // The SDK refuses this too, and for the reason worth repeating: with k = 1 every member's
             // share *is* the secret, so the quorum would be a fiction resting on the weakest inbox.
             if (threshold === 1 && n > 1) {
                 issues.push({
-                    message:
-                        `A 1-of-${n} is weaker than any single guardian, since it can be recovered ` +
-                        "through whichever one is easiest to compromise. Raise the threshold, or name " +
-                        "one guardian and mean it.",
+                    message: `1 of ${n} lets any single guardian recover alone. Raise the threshold.`,
                 });
             }
 
@@ -151,29 +140,13 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
         },
 
         describeGate(gate: GateRecord): GateDescription {
-            const preset = PRESETS.find(
-                (candidate) =>
-                    candidate.threshold === gate.threshold &&
-                    candidate.subjectCount === gate.subjectCount,
-            );
             return {
                 headline: `any ${gate.threshold} of ${gate.subjectCount} email addresses`,
-                survives:
-                    preset?.survives ??
-                    `Survives losing ${gate.subjectCount - gate.threshold} of them.`,
                 slots: gate.subjects.map((subject) => ({
                     index: subject.index,
                     label: subject.label,
                     publicLabel: subject.publicLabel,
                 })),
-                modeNote:
-                    gate.mode === "simulated"
-                        ? "Sealed in simulated mode — no ceremony was bought and no email was ever sent."
-                        : "Sealed against the live ceremony — each guardian's seal was paid for.",
-                limits: [
-                    `Fewer than ${gate.threshold} cannot recover, and no single guardian can act alone.`,
-                    "The seal file names every guardian: whoever holds it learns the whole set.",
-                ],
             };
         },
 
@@ -186,7 +159,6 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
                 const vault = parseQuorumVault(seal);
                 return {
                     headline: `any ${vault.threshold} of ${vault.members.length} guardians`,
-                    survives: `Survives losing ${vault.members.length - vault.threshold} of them.`,
                     slots: vault.members.map((member) => ({
                         index: member.index,
                         // A seal records each member's domain-only summary, never the address, so
@@ -194,8 +166,6 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
                         label: member.summary,
                         publicLabel: member.summary,
                     })),
-                    modeNote: "Read from the seal file itself — offline, and believing nothing else.",
-                    limits: ["The seal does not record which addresses these are, only their domains."],
                 };
             } catch {
                 return null;
@@ -238,10 +208,10 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
 
         async createRecovery(params: MethodRecoveryParams): Promise<MethodRecovery> {
             if (params.gate.mode !== options.mode) {
+                // The ceremony that sealed a vault is the only one that can open it.
                 throw new Error(
-                    `This vault was sealed in ${params.gate.mode} mode and this app is running in ` +
-                        `${options.mode} mode. The ceremony that sealed it is the only one that can ` +
-                        "open it.",
+                    `Vault sealed in ${params.gate.mode} mode; this app is in ${options.mode} mode. ` +
+                        `Run the app in ${params.gate.mode} mode to recover it.`,
                 );
             }
             const selected = [...new Set(params.selected)];
