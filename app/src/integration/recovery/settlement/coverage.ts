@@ -48,6 +48,8 @@ export interface CoverageRow {
      */
     balanceDecimals: number | null;
     balanceSymbol: string | null;
+    /** True when the balance is the demo's own fiction rather than a chain's answer. Nothing to lose. */
+    balanceSimulated?: boolean;
     /** What the chain holds. `null` when it was not read or could not be. */
     onchain: { installed: boolean; matchesVault: boolean } | null;
     onchainError: string | null;

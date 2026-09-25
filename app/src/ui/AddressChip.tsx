@@ -5,14 +5,28 @@
  */
 import { useState } from "react";
 
-export function AddressChip({ value, display }: { value: string; display: string }) {
+export function AddressChip({
+    value,
+    display,
+    concealed = false,
+}: {
+    value: string;
+    display: string;
+    /**
+     * Blur the text and drop the tooltip, for a value that should not sit readable on screen — a
+     * seed phrase. Copying still works: taking the value elsewhere is the point, showing it is not.
+     */
+    concealed?: boolean;
+}) {
     const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
     return (
         <button
             type="button"
             className="address-chip mono"
-            title={value}
+            // A tooltip is the value in plain text on hover, which would undo the blur.
+            title={concealed ? "Copy" : value}
+            {...(concealed ? { "aria-label": "Copy the hidden phrase" } : {})}
             onClick={async () => {
                 try {
                     await navigator.clipboard.writeText(value);
@@ -23,7 +37,12 @@ export function AddressChip({ value, display }: { value: string; display: string
                 setTimeout(() => setState("idle"), 1400);
             }}
         >
-            <code>{display}</code>
+            <code
+                className={concealed ? "concealed" : undefined}
+                aria-hidden={concealed || undefined}
+            >
+                {display}
+            </code>
             <span aria-hidden="true">
                 {state === "copied" ? "✓" : state === "failed" ? "✗" : "⧉"}
             </span>

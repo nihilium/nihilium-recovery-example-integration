@@ -35,7 +35,8 @@ import {
 } from "@nihilium/recovery-core";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ChainModule, DerivedAccount } from "../chains/types.js";
-import type { SealFile } from "./sealFile.js";
+import { toSealFile, type SealFile } from "./sealFile.js";
+import { pullVaultFromHost, type RecordHost } from "./recordHost.js";
 import type {
     RecoveryMethod,
     Subject,
@@ -67,6 +68,8 @@ export interface SealVaultParams {
     epoch?: number;
     /** Recorded on the vault and used by every later protect. See `VaultRecord.timelockSeconds`. */
     timelockSeconds?: number;
+    /** Where this vault's records are replicated. Written into the seal file. */
+    recordHosts?: readonly string[];
     onSubjectSealed?(event: SubjectSealed): void;
     onProgress?(message: string): void;
 }
@@ -155,6 +158,7 @@ export async function sealVault(deps: VaultDeps, params: SealVaultParams): Promi
         chains: [chainRecord],
         spent: null,
         ...(params.timelockSeconds !== undefined ? { timelockSeconds: params.timelockSeconds } : {}),
+        ...(params.recordHosts !== undefined ? { recordHosts: params.recordHosts } : {}),
     };
     await deps.vaults.put(vault);
 
@@ -385,10 +389,46 @@ export async function importSealFile(
         gate: file.gate,
         chains: file.chains,
         spent: null,
+        ...(file.recordHosts !== undefined ? { recordHosts: file.recordHosts } : {}),
     };
     if (existing === undefined) await deps.vaults.put(vault);
 
     // Last. See above.
     await deps.sealStore.putSeal(file.vaultId, file.seal);
     return { vault, entriesAdded: added, entriesAlreadyHeld: held };
+}
+
+/**
+ * The seal file for a vault, from storage.
+ *
+ * Only the seal and the instructions — the records and every chain's context are on the record
+ * host, which is why a file downloaded once does not go stale when a chain is added. Built from the
+ * stored vault anyway, so the chains it lists for the pre-ceremony check are today's.
+ */
+export async function exportSealFile(deps: VaultDeps, vaultId: string): Promise<SealFile> {
+    const vault = await deps.vaults.get(vaultId);
+    if (vault === undefined) throw new Error(`No vault ${vaultId} in this browser.`);
+    return toSealFile(vault, await deps.sealStore.getSeal(vaultId));
+}
+
+/**
+ * Pull the host's records and chain contexts into this device, and save the vault if it grew.
+ *
+ * Run before a recovery: it is how a chain protected after the seal file was saved gets into the
+ * vault this device recovers from.
+ */
+export async function refreshVaultFromHost(
+    deps: VaultDeps,
+    host: RecordHost,
+    vault: VaultRecord,
+): Promise<{ vault: VaultRecord; recordsAdded: number; chainsAdded: string[] }> {
+    const pulled = await pullVaultFromHost(deps.dataStore, host, vault);
+    if (pulled.vault !== vault) {
+        // Re-read and merge onto the stored row, so a `spent` mark written meanwhile is not lost.
+        const stored = (await deps.vaults.get(vault.vaultId)) ?? vault;
+        const updated = { ...stored, chains: pulled.vault.chains };
+        await deps.vaults.put(updated);
+        return { ...pulled, vault: updated };
+    }
+    return pulled;
 }

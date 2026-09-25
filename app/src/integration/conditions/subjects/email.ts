@@ -38,6 +38,7 @@ export function createEmailSubjectKind(options: EmailSubjectKindOptions): Subjec
         noun: { one: "guardian", many: "guardians" },
         icon: "UserGroup",
         conditionType: "zkemail",
+        contact: "will be emailed",
         fields: [
             {
                 key: "email",

@@ -16,7 +16,14 @@ import type {
     SubjectPhase,
     SubjectPrompt,
 } from "../integration/conditions/types.js";
-import { importSealFile, resealVault, sealVault } from "../integration/recovery/vault.js";
+import {
+    exportSealFile,
+    importSealFile,
+    refreshVaultFromHost,
+    resealVault,
+    sealVault,
+} from "../integration/recovery/vault.js";
+import { recordHostUrlFor, syncVaultToHost } from "../integration/recovery/recordHost.js";
 import {
     recoverAllChains,
     type RecoveredChainKey,
@@ -29,6 +36,12 @@ import { deriveWallet } from "./wallet.js";
 import { destinationsFor } from "./destinations.js";
 import { seedFingerprint } from "./seeds.js";
 import { submitAll } from "../integration/recovery/handover/run.js";
+import {
+    canHandOverAny,
+    checkHandovers,
+    describeBlocked,
+    type ChainReadiness,
+} from "../integration/recovery/handover/preflight.js";
 import { spentFromHandovers } from "../integration/recovery/handovers.js";
 import { handoverFor } from "./handoverRegistry.js";
 
@@ -47,7 +60,6 @@ export interface MemberView {
     index: number;
     label: string;
     phase: SubjectPhase;
-    message?: string;
 }
 
 export interface FlowState {
@@ -69,8 +81,9 @@ export interface FlowState {
      * Keyed by member index, never a single slot: members run concurrently, so a shared slot loses
      * one of two simultaneous waits.
      *
-     * Empty against the live ceremony, and necessarily so — there is no button here that makes a
-     * human answer their mail. A guardian's row sits in `awaiting-human` until they actually reply.
+     * Against the live ceremony a prompt never carries `resolve` — there is no button here that
+     * makes a human answer their mail. What it may carry is a `link`: a passport scan the human has
+     * to open on their phone, which the dialog renders as a QR code.
      */
     prompts: Record<number, SubjectPrompt>;
     /**
@@ -81,6 +94,12 @@ export interface FlowState {
      * stale decoration, it is the screen attributing work to something that did not do it.
      */
     logs: Record<LogChannel, string[]>;
+    /**
+     * Per vault: whether its records and chain contexts are on the record host. Reported rather than
+     * assumed — records belong everywhere, and a host that silently missed one is a recovery that
+     * silently misses a chain.
+     */
+    hostSync: Record<string, { ok: boolean; message: string }>;
     error: string | null;
     result: {
         contacted: readonly number[];
@@ -115,6 +134,7 @@ const EMPTY: FlowState = {
     members: [],
     prompts: {},
     logs: { seal: [], recover: [] },
+    hostSync: {},
     error: null,
     result: null,
 };
@@ -145,6 +165,41 @@ export function useRecoveryFlow(
      * badge compares the chain's new recovery owner against the row it replaced and reads
      * "Protected by a replaced gate" forever.
      */
+    /**
+     * Push every live vault's records and chain contexts to its record host. Idempotent: it appends
+     * only what the host lacks, so it runs after every reload, and a host that was down catches up.
+     */
+    const syncToHost = useCallback(
+        async (vaults: readonly VaultRecord[]) => {
+            for (const vault of vaults) {
+                if (vault.spent !== null) continue;
+                const url = recordHostUrlFor(vault, bindings.recordHostUrl);
+                let status: { ok: boolean; message: string };
+                try {
+                    const { appended } = await syncVaultToHost(
+                        bindings.stores.dataStore,
+                        bindings.recordHost(url),
+                        vault,
+                    );
+                    status = {
+                        ok: true,
+                        message:
+                            appended === 0
+                                ? `replicated to ${url}`
+                                : `replicated to ${url} · ${appended} new`,
+                    };
+                } catch (error) {
+                    status = { ok: false, message: `not replicated: ${messageOf(error)}` };
+                }
+                setState((prev) => ({
+                    ...prev,
+                    hostSync: { ...prev.hostSync, [vault.vaultId]: status },
+                }));
+            }
+        },
+        [bindings],
+    );
+
     const reload = useCallback(async () => {
         const [stored, seals, handovers] = await Promise.all([
             bindings.vaults.list(),
@@ -164,7 +219,10 @@ export function useRecoveryFlow(
             seals,
             phase: prev.phase === "idle" && vaults.length > 0 ? "sealed" : prev.phase,
         }));
-    }, [bindings]);
+        // After every reload, which is after every seal, protect and import: whatever changed here
+        // reaches the host without each caller having to remember to send it.
+        void syncToHost(vaults);
+    }, [bindings, syncToHost]);
 
     // Whatever this browser already sealed, so a reload does not look like a fresh start.
     useEffect(() => {
@@ -249,6 +307,9 @@ export function useRecoveryFlow(
                     walletId,
                     vaultId: nextVaultId(account.accountId, state.vaults),
                     timelockSeconds,
+                    // Written into the seal file: where a fresh device finds this vault's records,
+                    // including every chain added after the file was saved.
+                    recordHosts: [bindings.recordHostUrl],
                     onSubjectSealed: (event: { index: number; summary: string }) =>
                         noteSeal(`sealVault  #${event.index}  ${event.summary}`),
                     onProgress: noteSeal,
@@ -262,10 +323,6 @@ export function useRecoveryFlow(
                           });
                 noteSeal(`seal       recordId=${vault.recordId}`);
                 noteSeal(`seal       ${vault.chains[0]?.writeMs ?? 0} ms · ${subjects.length} ceremonies`);
-                // Carried into the file so it can open the vault on a device that has never seen
-                // this browser. They are inert without the seal — §12's rule for records is the
-                // opposite of the seal's: copy them everywhere.
-                const entries = await bindings.stores.dataStore.getEntries(vault.recordId);
                 setState((prev) => ({
                     ...prev,
                     phase: "sealed",
@@ -275,14 +332,16 @@ export function useRecoveryFlow(
                         ...prev.vaults.filter((row) => row.vaultId !== replacing?.vaultId),
                         vault,
                     ],
-                    sealFile: toSealFile(vault, sealBlob, entries),
+                    // The seal and the instructions; the records go to the host, below.
+                    sealFile: toSealFile(vault, sealBlob),
                     result: null,
                 }));
+                void syncToHost([vault]);
             } catch (error) {
                 setState((prev) => ({ ...prev, phase: "failed", error: messageOf(error) }));
             }
         },
-        [account, bindings, chain, methods, noteSeal, state.vaults, walletId],
+        [account, bindings, chain, methods, noteSeal, state.vaults, syncToHost, walletId],
     );
 
     const seal = useCallback(
@@ -299,9 +358,57 @@ export function useRecoveryFlow(
     );
 
 
+    /**
+     * The vault as its record host knows it: records pulled into this device, and every chain the
+     * host holds a context for — including chains protected after the seal file was saved.
+     *
+     * A host that cannot be reached is not fatal. The vault comes back as this device knows it, and
+     * the caller says so: recovering fewer chains than the vault holds is a fact the user must see.
+     */
+    const refreshFromHost = useCallback(
+        async (vault: VaultRecord): Promise<{ vault: VaultRecord; note: string }> => {
+            const url = recordHostUrlFor(vault, bindings.recordHostUrl);
+            try {
+                const pulled = await refreshVaultFromHost(
+                    bindings.stores,
+                    bindings.recordHost(url),
+                    vault,
+                );
+                if (pulled.chainsAdded.length > 0 || pulled.recordsAdded > 0) await reload();
+                return {
+                    vault: pulled.vault,
+                    note:
+                        `records    from ${url}: ${pulled.recordsAdded} new record` +
+                        `${pulled.recordsAdded === 1 ? "" : "s"}` +
+                        (pulled.chainsAdded.length > 0
+                            ? `, chains added since the file: ${pulled.chainsAdded.join(", ")}`
+                            : ""),
+                };
+            } catch (error) {
+                return {
+                    vault,
+                    note: `records    ${url} unreachable (${messageOf(error)}) — using what this device holds`,
+                };
+            }
+        },
+        [bindings, reload],
+    );
+
+    /**
+     * What each chain would say to a handover, read before a ceremony. Free: a few RPC reads.
+     *
+     * Takes the vault rather than the active wallet's, for the same reason `recover` does: the vault
+     * being recovered usually belongs to a seed this browser no longer holds.
+     */
+    const checkHandover = useCallback(
+        (vault: VaultRecord): Promise<ChainReadiness[]> =>
+            checkHandovers({ handoverFor: (chainId) => handoverFor(bindings, chainId) }, vault.chains),
+        [bindings],
+    );
+
     const recover = useCallback(
         async (
-            vault: VaultRecord,
+            given: VaultRecord,
             selected: readonly number[],
             /**
              * The seed control is handed to. Its keys sign nothing here — they are the *destination*
@@ -317,15 +424,36 @@ export function useRecoveryFlow(
             //
             // The method the vault records, never "whatever is current": a gate can only be opened
             // by the ceremony that built it, and the registry may well offer several.
-            const method = methods?.get(vault.gate.methodId) ?? null;
+            const method = methods?.get(given.gate.methodId) ?? null;
             if (method === null) return;
+
+            // The host first: chains protected after the seal file was saved exist only there, and
+            // both the check below and the recovery after it must see them.
+            const { vault, note: hostNote } = await refreshFromHost(given);
+
+            // Checked again here, not only in the dialog: the dialog's answer can be minutes old,
+            // and this is the last moment before anything is sent, paid for or spent.
+            const readiness = await checkHandover(vault);
+            if (!canHandOverAny(readiness)) {
+                const blocked = describeBlocked(readiness);
+                setState((prev) => ({
+                    ...prev,
+                    phase: "failed",
+                    result: null,
+                    error:
+                        "Nothing was sent: no chain in this vault can be handed over on-chain, so a " +
+                        `recovery would spend the vault for nothing. ${blocked.join(" ")}`,
+                    logs: { ...prev.logs, recover: blocked.map((line) => `preflight  ${line}`) },
+                }));
+                return;
+            }
 
             setState((prev) => ({
                 ...prev,
                 phase: "recovering",
                 error: null,
                 result: null,
-                logs: { ...prev.logs, recover: [] },
+                logs: { ...prev.logs, recover: [hostNote] },
                 members: vault.gate.subjects.map((subject) => ({
                     index: subject.index,
                     label: subject.label,
@@ -335,6 +463,7 @@ export function useRecoveryFlow(
                 })),
             }));
 
+            const lastProgress = new Map<number, string>();
             try {
                 const outcome = await recoverAllChains(bindings.stores, {
                     method,
@@ -344,13 +473,15 @@ export function useRecoveryFlow(
                     chains: bindings.chains,
                     ...(state.sealFile ? { seal: state.sealFile.seal } : {}),
                     onProgress: noteRecover,
-                    onSubjectProgress: (index, message) =>
-                        setState((prev) => ({
-                            ...prev,
-                            members: prev.members.map((member) =>
-                                member.index === index ? { ...member, message } : member,
-                            ),
-                        })),
+                    // The adapter's own running commentary goes to the transcript, not the row: the
+                    // row says what the app knows (the phase), and two voices describing one wait
+                    // read as two different things happening. Only changes are logged, because an
+                    // adapter that polls reports the same line every few seconds.
+                    onSubjectProgress: (index, message) => {
+                        if (lastProgress.get(index) === message) return;
+                        lastProgress.set(index, message);
+                        noteRecover(`#${index}         ${message}`);
+                    },
                     onSubjectPhase: (index, phase) =>
                         setState((prev) => ({
                             ...prev,
@@ -358,6 +489,11 @@ export function useRecoveryFlow(
                                 member.index === index ? { ...member, phase } : member,
                             ),
                         })),
+                    onSubjectPrompt: (index, prompt) =>
+                        setState((prev) => {
+                            const { [index]: _previous, ...rest } = prev.prompts;
+                            return { ...prev, prompts: prompt === null ? rest : { ...rest, [index]: prompt } };
+                        }),
                 });
 
                 // The keys are *assembled* — not never-assembled, whatever a marketing page might
@@ -487,7 +623,7 @@ export function useRecoveryFlow(
                 }));
             }
         },
-        [bindings, methods, noteRecover, state.sealFile],
+        [bindings, methods, noteRecover, checkHandover, refreshFromHost, state.sealFile],
     );
 
     /**
@@ -512,6 +648,16 @@ export function useRecoveryFlow(
             };
         });
     }, []);
+
+    /**
+     * The seal file for a vault as it stands now — every chain added since sealing included. The
+     * copy in `state.sealFile` is the one taken at sealing, and is only right until the first
+     * `addChain()`.
+     */
+    const exportSeal = useCallback(
+        (vault: VaultRecord): Promise<SealFile> => exportSealFile(bindings.stores, vault.vaultId),
+        [bindings],
+    );
 
     const answerPrompt = useCallback((index: number, accept: boolean) => {
         setState((prev) => {
@@ -585,10 +731,13 @@ export function useRecoveryFlow(
         async (text: string) => {
             const file = parseSealFile(text);
             const outcome = await importSealFile(bindings.stores, file);
+            // The file holds the seal and the instructions; the records, and any chain added after
+            // the file was saved, come from the host it names.
+            const { vault } = await refreshFromHost(outcome.vault);
             await reload();
-            return { file, ...outcome };
+            return { file, ...outcome, vault };
         },
-        [bindings, reload],
+        [bindings, reload, refreshFromHost],
     );
 
     const clearError = useCallback(() => {
@@ -596,8 +745,8 @@ export function useRecoveryFlow(
     }, []);
 
     return useMemo(
-        () => ({ state, active, vault: walletVault, covers, vaultFor, seal, reseal, recover, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError }),
-        [state, active, walletVault, covers, vaultFor, seal, reseal, recover, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError],
+        () => ({ state, active, vault: walletVault, covers, vaultFor, seal, reseal, recover, checkHandover, refreshFromHost, exportSeal, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError }),
+        [state, active, walletVault, covers, vaultFor, seal, reseal, recover, checkHandover, refreshFromHost, exportSeal, retryHandover, reload, importSeal, forgetKey, answerPrompt, clearError],
     );
 }
 

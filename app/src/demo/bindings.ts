@@ -25,6 +25,7 @@ import type { VaultDeps } from "../integration/recovery/vault.js";
 import { IdbSealedDataStore } from "../integration/storage/dataStore.js";
 import { IdbSealStore } from "../integration/storage/sealStore.js";
 import { readEnv, type DemoEnv } from "./env.js";
+import { createRecordHost, type RecordHost } from "../integration/recovery/recordHost.js";
 
 export interface AppBindings {
     env: DemoEnv;
@@ -36,6 +37,13 @@ export interface AppBindings {
     /** Recoveries submitted on-chain and waiting out a timelock. Holds intents, never keys. */
     handovers: HandoverStore;
     stores: VaultDeps;
+    /** This app's record host, written into every seal file it produces. */
+    recordHostUrl: string;
+    /**
+     * A client for a host — the vault's own, or this app's. Can append only when the demo's append
+     * secret is configured; reading needs no credential, so a recovery works without it.
+     */
+    recordHost(url?: string): RecordHost;
 }
 
 export function createAppBindings(): AppBindings {
@@ -45,6 +53,8 @@ export function createAppBindings(): AppBindings {
     const dataStore = new IdbSealedDataStore();
     const vaults = new VaultRecordStore();
     const handovers = new HandoverStore();
+    // The server's record role, mounted at `/api`: `GET|POST /api/records/:id`.
+    const recordHostUrl = `${env.serverUrl.replace(/\/+$/, "")}/api`;
 
     let methods: MethodRegistry | null = null;
     let methodError: string | null = null;
@@ -59,6 +69,13 @@ export function createAppBindings(): AppBindings {
                 // lists one processor, so 1-of-1 is the only honest setting against it today.
                 processorThreshold: env.nihilium.processorThreshold,
                 processorCount: env.nihilium.processorCount,
+            },
+            // What the ZKPassport app shows the holder. The domain has to be this page's own: the
+            // app displays it as the requester, and a mismatch is what phishing looks like.
+            passport: {
+                domain: window.location.hostname,
+                name: "Nihilium recovery demo",
+                purpose: "Prove the identity this vault was sealed for",
             },
         });
     } catch (error) {
@@ -79,5 +96,13 @@ export function createAppBindings(): AppBindings {
         vaults,
         handovers,
         stores: { sealStore, dataStore, vaults },
+        recordHostUrl,
+        recordHost: (url = recordHostUrl) =>
+            createRecordHost({
+                url,
+                ...(env.recordAppendSecret === undefined
+                    ? {}
+                    : { appendCredential: env.recordAppendSecret }),
+            }),
     };
 }

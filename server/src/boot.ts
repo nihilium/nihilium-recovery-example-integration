@@ -127,7 +127,7 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
     );
     console.log("");
     console.log(`    record host        ${config.recordsDir}`);
-    console.log(`                       GET|POST /api/records/:id — ciphertext only, never a seal`);
+    console.log(`                       GET|POST /api/records/:id — ciphertext and chain context, never a seal`);
     console.log(`    watchtower         ${config.watchesDir}`);
     console.log(`                       polling every ${config.watchtowerPollSeconds}s — holds no keys`);
     console.log("");

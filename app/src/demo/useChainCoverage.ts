@@ -39,6 +39,11 @@ export function useChainCoverage(
     wallet: WalletSnapshot | null,
     /** The gate this wallet holds at all, across whichever chains `addChain()` has reached. */
     vault: VaultRecord | null,
+    /**
+     * Hold the answer still. Set while a protect run is on screen, so a re-read cannot reshuffle
+     * the rows it is reporting on.
+     */
+    paused = false,
 ): ChainCoverage {
     const [loaded, setLoaded] = useState<{ key: string; rows: readonly CoverageRow[] }>({
         key: "",
@@ -63,56 +68,7 @@ export function useChainCoverage(
         let live = true;
 
         void (async () => {
-            const next = await Promise.all(
-                registry.all().map(async (chain): Promise<CoverageRow> => {
-                    // `accounts[0]` is *the* account on every chain — the smart account on EVM, the
-                    // vault PDA on Solana — so it is the one whose balance a sweep would move.
-                    const account = wallet.accounts[chain.id]?.[0];
-                    const base: CoverageRow = {
-                        chainId: chain.id,
-                        chainLabel: chain.label,
-                        settles: supportsSettlement(chain.id),
-                        hasVault: vault !== null,
-                        vaultSpent: vault?.spent != null,
-                        balanceRaw: null,
-                        balanceError: account === undefined ? "no account derived" : null,
-                        balanceDecimals: null,
-                        balanceSymbol: null,
-                        onchain: null,
-                        onchainError: null,
-                    };
-                    if (account === undefined) return base;
-
-                    // Independently, and neither failure takes the other down: a chain whose balance
-                    // is unreadable but whose module reads fine is still actionable, and the reverse
-                    // is worth saying out loud.
-                    const [balance, onchain] = await Promise.allSettled([
-                        chain.balanceOf(account.address),
-                        supportsSettlement(chain.id)
-                            ? readProtection({ env, stores }, { chain, account, vault })
-                            : Promise.resolve(null),
-                    ]);
-
-                    return {
-                        ...base,
-                        balanceRaw: balance.status === "fulfilled" ? balance.value.raw : null,
-                        balanceDecimals:
-                            balance.status === "fulfilled" ? balance.value.decimals : null,
-                        balanceSymbol: balance.status === "fulfilled" ? balance.value.symbol : null,
-                        balanceError:
-                            balance.status === "rejected" ? messageOf(balance.reason) : null,
-                        onchain:
-                            onchain.status === "fulfilled" && onchain.value !== null
-                                ? {
-                                      installed: onchain.value.installed,
-                                      matchesVault: onchain.value.matchesVault,
-                                  }
-                                : null,
-                        onchainError:
-                            onchain.status === "rejected" ? messageOf(onchain.reason) : null,
-                    };
-                }),
-            );
+            const next = await readCoverage({ chains: registry, env, stores }, wallet, vault);
             if (!live) return;
             setLoaded({ key, rows: next });
         })();
@@ -122,12 +78,93 @@ export function useChainCoverage(
         };
     }, [registry, env, stores, wallet, vault, key]);
 
+    // Re-read when the user comes back to the tab. Funding an account happens somewhere else — a
+    // faucet, another wallet — and a read made before it is the read that calls the chain empty.
+    useEffect(() => {
+        if (paused) return;
+        const onVisible = () => {
+            if (document.visibilityState === "visible") setNonce((n) => n + 1);
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        window.addEventListener("focus", onVisible);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisible);
+            window.removeEventListener("focus", onVisible);
+        };
+    }, [paused]);
+
     const current = loaded.key === key;
     return {
         rows: current ? loaded.rows : NONE,
         loading: !current && wallet !== null,
         refresh: useCallback(() => setNonce((n) => n + 1), []),
     };
+}
+
+/**
+ * One wallet's coverage, as a plain read: every chain, its balance, and what its module holds.
+ *
+ * Out of the hook so a caller with several wallets — the Reset dialog, asking which seeds still
+ * reach funds — can run the same read rather than a second one that could disagree with the card.
+ */
+export async function readCoverage(
+    bindings: Pick<AppBindings, "chains" | "env" | "stores">,
+    wallet: WalletSnapshot,
+    vault: VaultRecord | null,
+): Promise<CoverageRow[]> {
+    const { chains: registry, env, stores } = bindings;
+    return Promise.all(
+        registry.all().map(async (chain): Promise<CoverageRow> => {
+            // `accounts[0]` is *the* account on every chain — the smart account on EVM, the
+            // vault PDA on Solana — so it is the one whose balance a sweep would move.
+            const account = wallet.accounts[chain.id]?.[0];
+            const base: CoverageRow = {
+                chainId: chain.id,
+                chainLabel: chain.label,
+                settles: supportsSettlement(chain.id),
+                hasVault: vault !== null,
+                vaultSpent: vault?.spent != null,
+                balanceRaw: null,
+                balanceError: account === undefined ? "no account derived" : null,
+                balanceDecimals: null,
+                balanceSymbol: null,
+                onchain: null,
+                onchainError: null,
+            };
+            if (account === undefined) return base;
+
+            // Independently, and neither failure takes the other down: a chain whose balance
+            // is unreadable but whose module reads fine is still actionable, and the reverse
+            // is worth saying out loud.
+            const [balance, onchain] = await Promise.allSettled([
+                chain.balanceOf(account.address),
+                supportsSettlement(chain.id)
+                    ? readProtection({ env, stores }, { chain, account, vault })
+                    : Promise.resolve(null),
+            ]);
+
+            return {
+                ...base,
+                balanceRaw: balance.status === "fulfilled" ? balance.value.raw : null,
+                balanceDecimals:
+                    balance.status === "fulfilled" ? balance.value.decimals : null,
+                balanceSymbol: balance.status === "fulfilled" ? balance.value.symbol : null,
+                balanceSimulated:
+                    balance.status === "fulfilled" && balance.value.source === "simulated",
+                balanceError:
+                    balance.status === "rejected" ? messageOf(balance.reason) : null,
+                onchain:
+                    onchain.status === "fulfilled" && onchain.value !== null
+                        ? {
+                              installed: onchain.value.installed,
+                              matchesVault: onchain.value.matchesVault,
+                          }
+                        : null,
+                onchainError:
+                    onchain.status === "rejected" ? messageOf(onchain.reason) : null,
+            };
+        }),
+    );
 }
 
 function messageOf(error: unknown): string {

@@ -61,6 +61,26 @@ export function createEvmHandover(config: EvmHandoverConfig): ChainHandover {
         );
 
     return {
+        async preflight({ chainRecord }) {
+            const expected = chainRecord.recoveryPubKeyHex;
+            if (expected === undefined) {
+                return [
+                    {
+                        code: "no-recovery-key",
+                        blocking: true,
+                        message: "This vault recorded no recovery key for this account.",
+                    },
+                ];
+            }
+            // The same checks `initiate` repeats, minus the relayer: whether it is funded is a
+            // fact about the moment of submitting, not about whether this account can be recovered.
+            return preflightRecovery(reader(), {
+                account: chainRecord.accountId as Address,
+                expectedRecoveryPubKeyHex: expected,
+                intentTtlSeconds: DEFAULT_INTENT_TTL_SECONDS,
+            });
+        },
+
         async initiate(params: InitiateParams): Promise<InitiateResult> {
             const module = reader();
             const account = params.chainRecord.accountId as Address;

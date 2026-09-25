@@ -171,6 +171,19 @@ body {
   cursor: pointer;
 }
 
+/* A value that should not sit readable on screen. Blurred rather than replaced, so its length and
+ * shape still read as "twelve words" and nothing about the layout jumps when it is shown. */
+.address-chip .concealed {
+  filter: blur(5px);
+  user-select: none;
+}
+
+.secret-phrase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nih-space-2);
+}
+
 .address-chip__note {
   color: var(--nih-color-error);
   font-size: var(--nih-text-sm);
@@ -208,6 +221,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--nih-space-2);
+}
+
+/* Short, like-for-like choices — a timelock — side by side as compact boxes. */
+.gate-picker--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.gate-picker--row .gate-option {
+  width: auto;
+  min-width: 3.5rem;
+  align-items: center;
+  padding: var(--nih-space-2) var(--nih-space-3);
 }
 
 .gate-option {
@@ -411,6 +437,13 @@ body {
 /* Pushed right so the state badge lands on the far edge of the bar, open or closed. */
 .disclosure__spacer {
   margin-left: auto;
+}
+
+/* The bar's action, and only while the card is shut. The body carries the same button, and showing
+ * both at once is one button too many for one outcome. Done here rather than with the open state in
+ * React because `<details>` owns that state — reading it back would mean taking it over. */
+.disclosure[open] .disclosure__action {
+  display: none;
 }
 
 .disclosure__body {
@@ -1115,4 +1148,53 @@ body {
     grid-template-columns: 1fr;
     gap: var(--nih-space-1);
   }
+}
+
+/* ---------- passport scan ---------- */
+
+.passport-scan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+  padding: var(--nih-space-3) var(--nih-space-4);
+  border: var(--nih-border-width) solid var(--nih-color-border);
+  border-radius: var(--nih-radius-md);
+  background: var(--nih-color-field);
+}
+
+/* Always white: a QR code needs contrast more than it needs the brand surface. */
+.passport-scan__qr {
+  align-self: flex-start;
+  padding: var(--nih-space-3);
+  border-radius: var(--nih-radius-sm);
+  background: #fff;
+  line-height: 0;
+}
+
+/* On a phone the scan happens on this device; the link is the way in, not the code. */
+@media (max-width: 560px) {
+  .passport-scan__qr {
+    display: none;
+  }
+}
+
+/* ---------- document check (passport MRZ lines) ---------- */
+
+.document-check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nih-space-2);
+  margin-top: var(--nih-space-2);
+}
+
+.document-check__lines {
+  margin: 0;
+  padding: var(--nih-space-2) var(--nih-space-3);
+  list-style: none;
+  border: 1px solid var(--nih-color-border-subtle);
+  border-radius: var(--nih-radius-sm);
+  background: var(--nih-color-field);
+  font-size: var(--nih-text-sm);
+  letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
 }

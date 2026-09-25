@@ -19,6 +19,8 @@ import { logError, logInfo } from "./log.js";
 import { createRelayerRouter } from "./roles/relayer/index.js";
 import { createSolanaRelayerRouter } from "./roles/relayer/solana.js";
 import { createVetoRouter } from "./roles/veto/index.js";
+import { createRecordsRouter } from "./roles/records/index.js";
+import { LocalSealedDataStore } from "@nihilium/recovery-storage-local";
 
 // From the SDK's address book, never a literal: the v1 -> v2 redeploy moved this address, and a
 // hardcoded copy would have kept pointing at the superseded module while looking correct.
@@ -95,6 +97,17 @@ app.use(
         },
         resumeThreshold: config.resumeThreshold,
         log: (message) => logInfo("veto", message),
+    }),
+);
+
+// Holds ciphertext and per-chain context, never a seal and never a key — which is why it needs no
+// role identity, unlike every router above.
+app.use(
+    "/api",
+    createRecordsRouter({
+        store: new LocalSealedDataStore({ directory: config.recordsDir, domain: "demo-record-host" }),
+        appendSecret: config.recordAppendSecret,
+        log: (message) => logInfo("records", message),
     }),
 );
 

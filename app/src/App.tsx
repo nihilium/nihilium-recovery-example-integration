@@ -36,6 +36,7 @@ import { chainsToProtect, staleChains } from "./integration/recovery/settlement/
 import { ProtectAllDialog } from "./ui/ProtectAllDialog.js";
 import type { VaultRecord } from "./integration/recovery/vaultRecords.js";
 import { Button, StatusMessage, TopBar } from "./ui/ds.js";
+import { AddressChip } from "./ui/AddressChip.js";
 
 export function App() {
     // Built once. Rebuilding it mid-run would swap the chain registry — and, from M3, the SDK
@@ -124,7 +125,8 @@ export function App() {
 
     // Recoveries already on-chain. Keyed on the handover rows, not on the active seed — which is
     // the seed a recovery says you no longer have, and the reason none of this was visible before.
-    const handovers = useHandovers(bindings, seeds);
+    // A finished recovery discards its spent vault, so the vault list is re-read when one closes.
+    const handovers = useHandovers(bindings, seeds, () => void flow.reload());
     // The accounts each handover row recorded — read from the chain, polled, and shared by the
     // timelock box and the handover view, so the two render the same reads. They used to disagree
     // because the handover view never asked the chain at all.
@@ -152,13 +154,13 @@ export function App() {
     // Every chain's balance and module state together. The recovery card is about the gate, and
     // a gate covers chains the switcher is not showing — so this is the one place that asks them
     // all rather than the active one.
-    const coverage = useChainCoverage(bindings, wallet, flow.vault);
+    const [protectingAll, setProtectingAll] = useState(false);
+    const coverage = useChainCoverage(bindings, wallet, flow.vault, protectingAll);
     const { targets, skipped } = useMemo(() => chainsToProtect(coverage.rows), [coverage.rows]);
     const stale = useMemo(
         () => staleChains(coverage.rows).map((row) => row.chainLabel),
         [coverage.rows],
     );
-    const [protectingAll, setProtectingAll] = useState(false);
     const protectAll = useProtectAll(bindings, flow.vault, wallet, bindings.methods, async () => {
         // The ledger and every chain read are stale the moment one of these lands.
         await flow.reload();
@@ -265,6 +267,32 @@ export function App() {
 
                         {error !== null && <StatusMessage tone="error">{error}</StatusMessage>}
 
+                        {/* The handover tab is gone the moment a recovery finishes, so this is where
+                            its outcome is said — once, until dismissed. */}
+                        {handovers.state.completed !== null && (
+                            <div className="row">
+                                <StatusMessage tone="success">
+                                    Recovery complete — funds moved on{" "}
+                                    {handovers.state.completed.chains
+                                        .map((row) => chainLabels[row.chainId] ?? row.chainId)
+                                        .join(" and ")}
+                                    . The spent vault was discarded.
+                                </StatusMessage>
+                                {handovers.state.completed.chains.map((row) =>
+                                    row.sweepTx === null ? null : (
+                                        <AddressChip
+                                            key={row.chainId}
+                                            value={row.sweepTx}
+                                            display={`${chainLabels[row.chainId] ?? row.chainId} ${row.sweepTx.slice(0, 10)}…`}
+                                        />
+                                    ),
+                                )}
+                                <Button variant="ghost" onClick={handovers.clearCompleted}>
+                                    Dismiss
+                                </Button>
+                            </div>
+                        )}
+
                         {activeView === "handover" && (
                             <HandoverView
                                 handovers={handovers}
@@ -311,6 +339,8 @@ export function App() {
                         coverage={{ targets, stale }}
                         onProtectAll={() => {
                             protectAll.reset();
+                            // Asked again, not trusted: the page's read may predate the funds.
+                            coverage.refresh();
                             setProtectingAll(true);
                         }}
                         onOpenHandover={() => setView("handover")}
@@ -347,7 +377,15 @@ export function App() {
                 </main>
             </div>
 
-            {resetting && <ResetDialog open onClose={() => setResetting(false)} />}
+            {resetting && (
+                <ResetDialog
+                    open
+                    onClose={() => setResetting(false)}
+                    bindings={bindings}
+                    seeds={seeds.seeds}
+                    vaults={flow.state.vaults}
+                />
+            )}
             {showingNetworks && (
                 <NetworksDialog open onClose={() => setShowingNetworks(false)} chains={chains} />
             )}
@@ -363,6 +401,7 @@ export function App() {
                     skipped={skipped}
                     protectAll={protectAll}
                     fees={fees}
+                    reading={coverage.loading}
                 />
             )}
 
@@ -397,6 +436,7 @@ export function App() {
                         void flow.reload();
                     }}
                     flow={flow}
+                    methods={bindings.methods}
                     vault={recovering.vault}
                     onChooseVault={(chosen) => setRecovering({ vault: chosen })}
                     startAtVaultStep={startedWithoutVault}

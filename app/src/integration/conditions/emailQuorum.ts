@@ -70,9 +70,9 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
 
     return {
         id: EMAIL_QUORUM_METHOD_ID,
-        label: "Email guardians",
+        label: "Guardians: other people, by email",
         icon: "UserGroup",
-        blurb: "Guardians recover by proving control of their inbox.",
+        blurb: "Several people you trust each prove their own inbox. Enough of them together recover.",
         limits: [
             "Covers loss, not theft: it restores access to an owner who lost it, and does not defend " +
                 "a wallet whose seed someone else already holds.",
@@ -230,6 +230,8 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
                 hooksFor: (index) => ({
                     onProgress: (message) => params.onSubjectProgress?.(index, message),
                     onPhase: (phase) => params.onSubjectPhase?.(index, phase),
+                    onPrompt: (prompt) =>
+                        params.onSubjectPrompt?.(index, prompt === null ? null : { ...prompt, index }),
                 }),
                 ...(params.onSubjectPhase ? { onPhase: params.onSubjectPhase } : {}),
             });

@@ -89,7 +89,7 @@ export interface RecoverAllParams {
     onProgress?(message: string): void;
     onSubjectProgress?(index: number, message: string): void;
     onSubjectPhase?(index: number, phase: SubjectPhase): void;
-    onSubjectPrompt?(prompt: SubjectPrompt): void;
+    onSubjectPrompt?(index: number, prompt: SubjectPrompt | null): void;
 }
 
 export async function recoverAllChains(

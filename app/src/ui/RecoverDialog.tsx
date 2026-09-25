@@ -24,6 +24,15 @@
  */
 import { Fragment, useEffect, useState } from "react";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type {
+    MethodRegistry,
+    StoredSubject,
+    SubjectPhase,
+} from "../integration/conditions/types.js";
+import {
+    canHandOverAny,
+    type ChainReadiness,
+} from "../integration/recovery/handover/preflight.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, StatusMessage } from "./ds.js";
 import type { FeeEstimator } from "../demo/useFeeEstimate.js";
@@ -33,6 +42,7 @@ import { Notice } from "./Notice.js";
 import { Transcript } from "./Transcript.js";
 import { RecoveredKeys } from "./RecoveredKey.js";
 import { RecoveryVaultPicker } from "./RecoveryVaultPicker.js";
+import { PassportScan } from "./PassportScan.js";
 import { destinationFor, eligibleOwners, type Destination } from "../demo/destinations.js";
 import { seedFingerprint, type SeedBook, type SeedEntry } from "../demo/seeds.js";
 import type { CachedRecovery, RecoveryCatalogue } from "../integration/recovery/recoveryCatalogue.js";
@@ -48,6 +58,7 @@ export function RecoverDialog({
     open,
     onClose,
     flow,
+    methods,
     vault,
     onChooseVault,
     startAtVaultStep,
@@ -63,6 +74,8 @@ export function RecoverDialog({
     open: boolean;
     onClose: () => void;
     flow: RecoveryFlow;
+    /** For what each subject's kind does to a person when a recovery selects it. */
+    methods: MethodRegistry | null;
     /**
      * The vault being recovered. Owned by the caller, not by this dialog, because the on-chain half
      * has to follow the same choice — held here, picking a vault in step one
@@ -105,11 +118,23 @@ export function RecoverDialog({
     const [owner, setOwner] = useState<string | null>(null);
     const [picked, setPicked] = useState<number[]>([]);
     const [startedAt, setStartedAt] = useState<number | null>(null);
+    /**
+     * What each chain would say to a handover, read when the last step opens — before anything is
+     * sent. Stored with the vault it describes, so a different vault reads as "not checked yet".
+     */
+    const [checked, setChecked] = useState<{ vaultId: string; rows: ChainReadiness[] } | null>(null);
     const [now, setNow] = useState(() => Date.now());
 
     const gate = vault?.gate ?? null;
     const running = state.phase === "recovering";
-    const complete = gate !== null && picked.length === gate.threshold;
+    // When every slot is needed there is no choice to make, so none is asked for.
+    const everyone = gate !== null && gate.threshold === gate.subjectCount;
+    const selection = everyone ? gate.subjects.map((subject) => subject.index) : picked;
+    const complete = gate !== null && selection.length === gate.threshold;
+    const contactFor = (subject: StoredSubject): string =>
+        methods
+            ?.get(gate?.methodId ?? "")
+            ?.kinds.find((kind) => kind.id === subject.kindId)?.contact ?? "will be contacted";
 
     /**
      * Seeds that may receive control — never the one the vault protects.
@@ -141,6 +166,33 @@ export function RecoverDialog({
     // recovers the others, and `submitAll` reports that chain as a failed row rather than refusing.
     const targetValid = vaultChains.some((row) => row.destination !== null);
 
+    // Stable across renders (`useCallback`s over the bindings), unlike `flow` itself.
+    const { checkHandover, refreshFromHost } = flow;
+    // Keyed on the vault's id, not the object: pulling from the host hands back a grown vault, and
+    // re-running on that would pull again for nothing.
+    const vaultId = vault?.vaultId;
+    useEffect(() => {
+        if (step !== "guardians" || vault === null || state.result !== null) return;
+        let live = true;
+        void (async () => {
+            // The host first: a chain protected after the seal file was saved exists only there,
+            // and it must be both shown and checked before anything is sent.
+            const { vault: fresh } = await refreshFromHost(vault);
+            if (!live) return;
+            if (fresh !== vault) onChooseVault(fresh);
+            const rows = await checkHandover(fresh);
+            if (live) setChecked({ vaultId: fresh.vaultId, rows });
+        })();
+        return () => {
+            live = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- see `vaultId` above
+    }, [step, vaultId, state.result, checkHandover, refreshFromHost]);
+
+    const readiness = checked !== null && checked.vaultId === vault?.vaultId ? checked.rows : null;
+    const handable = readiness !== null && canHandOverAny(readiness);
+    const refused = readiness?.filter((row) => row.status === "blocked" || row.status === "unsupported") ?? [];
+
     // One timer for the whole table rather than one per row: the elapsed column is the only thing
     // that changes between ticks, and n intervals to render n cells is n times the re-renders.
     useEffect(() => {
@@ -154,7 +206,7 @@ export function RecoverDialog({
         setStartedAt(Date.now());
         // The vault chosen in step one — which may belong to a seed this browser no longer holds,
         // and usually does — and the seed chosen in step two, which control is handed to.
-        void flow.recover(vault, picked, owner);
+        void flow.recover(vault, selection, owner);
     }
 
     function close(): void {
@@ -203,12 +255,18 @@ export function RecoverDialog({
                     <DialogActions back={{ label: "Back", onClick: () => setStep("owner"), disabled: running }}>
                         <Button
                             onClick={start}
-                            disabled={!complete || !targetValid || owner === null || running}
+                            disabled={
+                                !complete || !targetValid || owner === null || running || !handable
+                            }
                         >
                             {running
-                                ? "Waiting on the guardians…"
-                                : !complete
-                                  ? `Pick ${(gate?.threshold ?? 0) - picked.length} more`
+                                ? "Recovering…"
+                                : readiness === null
+                                  ? "Checking the chains…"
+                                  : !handable
+                                    ? "Nothing on-chain to hand over"
+                                    : !complete
+                                  ? `Pick ${(gate?.threshold ?? 0) - selection.length} more`
                                   : "Start recovery"}
                         </Button>
                     </DialogActions>
@@ -245,8 +303,8 @@ export function RecoverDialog({
                             </span>
                             <div className="gate-picker">
                                 {gate.subjects.map((subject) => {
-                                    const chosen = picked.includes(subject.index);
-                                    const full = !chosen && picked.length >= gate.threshold;
+                                    const chosen = selection.includes(subject.index);
+                                    const full = !chosen && selection.length >= gate.threshold;
                                     return (
                                         <button
                                             key={subject.index}
@@ -259,7 +317,7 @@ export function RecoverDialog({
                                             aria-pressed={chosen}
                                             // Capped here rather than letting the quorum refuse it
                                             // minutes later.
-                                            disabled={full || running}
+                                            disabled={full || running || everyone}
                                             onClick={() =>
                                                 setPicked(
                                                     chosen
@@ -273,7 +331,7 @@ export function RecoverDialog({
                                             </span>
                                             <span className="gate-option__gate">
                                                 {chosen
-                                                    ? "will be emailed"
+                                                    ? contactFor(subject)
                                                     : full
                                                       ? "—"
                                                       : "tap to use"}
@@ -282,6 +340,37 @@ export function RecoverDialog({
                                     );
                                 })}
                             </div>
+                        </div>
+
+                        {/* Read before anything is sent: a recovery the chain will refuse spends the
+                            vault for nothing, and every reason for refusing is a free read away. */}
+                        <div className="field">
+                            <span className="field__label">On-chain check</span>
+                            <dl className="rows">
+                                {vaultChains.map((row) => (
+                                    <Fragment key={row.chainId}>
+                                        <dt>{row.label}</dt>
+                                        <dd className="rows__prose">
+                                            {readinessLabel(
+                                                readiness?.find((entry) => entry.chainId === row.chainId),
+                                                readiness === null,
+                                            )}
+                                        </dd>
+                                    </Fragment>
+                                ))}
+                            </dl>
+                            {readiness !== null && !handable && (
+                                <StatusMessage tone="error">
+                                    No chain in this vault can be handed over. A recovery would spend
+                                    the vault and move nothing.
+                                </StatusMessage>
+                            )}
+                            {readiness !== null && handable && refused.length > 0 && (
+                                <Notice tone="caution">
+                                    {readiness.length - refused.length} of {readiness.length} chains
+                                    can be handed over. The others will be recorded as failed.
+                                </Notice>
+                            )}
                         </div>
 
                         {/* Every chain the vault covers, each with its own key. One `0x…` shown
@@ -336,15 +425,9 @@ export function RecoverDialog({
                                     <tr key={member.index} data-contacted={String(asked)}>
                                         <td>{member.index}</td>
                                         <td>{member.label}</td>
-                                        <td>
-                                            {phaseLabel(member.phase.kind)}
-                                            {member.message !== undefined && (
-                                                <>
-                                                    {" "}
-                                                    <span className="muted">{member.message}</span>
-                                                </>
-                                            )}
-                                        </td>
+                                        {/* One voice: the app's phase, in its own words. The
+                                            adapter's commentary is in the transcript below. */}
+                                        <td>{phaseText(member.phase)}</td>
                                         <td>
                                             {asked && startedAt !== null
                                                 ? elapsed(startedAt, now)
@@ -356,6 +439,13 @@ export function RecoverDialog({
                         </tbody>
                     </table>
                 )}
+
+                {/* What a person has to do right now — a passport scan, today. Rendered from the
+                    prompt itself, so a live ceremony shows a link and never an "answer" button. */}
+                {running &&
+                    Object.values(state.prompts).map((prompt) => (
+                        <PassportScan key={prompt.index} prompt={prompt} />
+                    ))}
 
                 {state.result !== null && (
                     <>
@@ -437,20 +527,31 @@ export function RecoverDialog({
     );
 }
 
-function phaseLabel(kind: string): string {
-    switch (kind) {
-        case "requesting":
-            return "asking";
-        case "awaiting-human":
-            return "awaiting reply";
-        case "proving":
-            return "proving";
-        case "done":
-            return "done";
-        case "failed":
-            return "failed";
-        default:
+/** One chain's pre-ceremony answer. An unreadable chain says so; it never reads as ready. */
+function readinessLabel(row: ChainReadiness | undefined, checking: boolean): string {
+    if (checking) return "checking…";
+    if (row === undefined) return "not checked";
+    switch (row.status) {
+        case "ready":
+            return "ready — the chain holds this vault's recovery key";
+        case "blocked":
+            return row.problems.find((problem) => problem.blocking)?.message ?? "refused";
+        case "unchecked":
+            return `could not be checked: ${row.error ?? "unreadable"}`;
+        case "unsupported":
+            return "no on-chain handover in this build";
+    }
+}
+
+/** What a member row says. The phase's own message where it has one — that is the app's account. */
+function phaseText(phase: SubjectPhase): string {
+    switch (phase.kind) {
+        case "idle":
             return "not contacted";
+        case "failed":
+            return `failed — ${phase.reason}`;
+        default:
+            return phase.message;
     }
 }
 

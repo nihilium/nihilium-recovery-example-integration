@@ -2,8 +2,10 @@
  * The keys a recovery produced — one block per chain — and the count of ceremonies that bought them.
  *
  * A wallet that says "recovered" and shows nothing is asking to be taken on trust. This is the thing
- * that came out of the ceremony, so it is shown: the curve, the public half, the address the module
- * compares against, and — behind one click — the private half.
+ * that came out of the ceremony, so it is available: the curve, the public half, the address the
+ * module compares against, and — behind one more click — the private half. All of it sits in a
+ * closed "Raw recovered keys" fold under the one-line result, because once the handover is submitted
+ * it is evidence rather than something to act on. A chain that failed stays outside the fold.
  *
  * The private key is here because this demo runs in `rawKey` mode and its mnemonic is printed on the
  * front page; showing it makes *"the key is assembled"* a thing you can look at rather than a claim
@@ -34,6 +36,7 @@ export function RecoveredKeys({
     untouched: readonly number[];
 }) {
     const opened = keys.filter((key) => key.failure === null);
+    const failed = keys.filter((key) => key.failure !== null);
 
     return (
         <div className="stack">
@@ -45,18 +48,34 @@ export function RecoveredKeys({
                 ceremon{ceremonies === 1 ? "y" : "ies"}.
             </StatusMessage>
 
-            {keys.map((key) => (
+            {/* A failure is status, not evidence, so it stays out of the fold: hidden behind a click
+                it would read as a vault that never covered that chain. */}
+            {failed.map((key) => (
                 <ChainKey key={key.chainId} entry={key} />
             ))}
 
-            <dl className="rows">
-                <dt>contacted</dt>
-                <dd>{contacted.map((i) => `#${i}`).join(", ") || "—"}</dd>
+            {/* Closed by default: the count above is the result, and what follows is the evidence
+                for it. `<details>` for the same reason as the transcript fold — it brings the
+                open state, the keyboard handling and the expanded/collapsed role with it. */}
+            <details className="transcript-fold">
+                <summary>
+                    <span className="disclosure__marker" aria-hidden="true" />
+                    Raw recovered keys
+                </summary>
+                <div className="stack">
+                    {opened.map((key) => (
+                        <ChainKey key={key.chainId} entry={key} />
+                    ))}
 
-                <dt>not contacted</dt>
-                <dd>{untouched.map((i) => `#${i}`).join(", ") || "—"}</dd>
-            </dl>
+                    <dl className="rows">
+                        <dt>contacted</dt>
+                        <dd>{contacted.map((i) => `#${i}`).join(", ") || "—"}</dd>
 
+                        <dt>not contacted</dt>
+                        <dd>{untouched.map((i) => `#${i}`).join(", ") || "—"}</dd>
+                    </dl>
+                </div>
+            </details>
         </div>
     );
 }

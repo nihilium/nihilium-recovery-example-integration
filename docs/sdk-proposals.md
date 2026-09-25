@@ -94,3 +94,36 @@ The `version` is worth having in the same call for a separate reason: the Sepoli
 domain separator — which is why this repo reads every digest from the chain rather than computing it.
 
 **If declined:** the constant stays, with the comment.
+
+---
+
+## 3. The passport query shape: `range("birthdate", d, d)`, not `eq`
+
+**Today.** The combined adapter's README points at `forgot-my-password-ui`'s `ZKPassportStep.tsx` as
+the model request, and that component bounds the date of birth with `query.eq("birthdate", d)`. In
+`@zkpassport/utils`, every field with an `eq` constraint is also added to the *disclose* mask. The date
+circuit is unaffected: `eq` and `range(d, d)` give it the same bounds, so the birthdate commitment
+matches. But the name disclosure then carries the six date-of-birth characters from the
+machine-readable zone as well. nihilium-core's `generateFirstnameDiscloseCommitmentCandidates` commits
+to the name alone, so a proof from the correct passport can never match. `setPassportProof` then
+reports "This passport does not match the name and date of birth this vault was sealed for".
+
+This was found on this repo's first live recovery. For a passport reading `VAN<WIJK<<OLAF…`, a
+name-only disclosure reproduces the sealed candidate exactly (`0x0060ac2f…`), while name plus date of
+birth gives `0x00f5784a…`.
+
+**What this repo does instead.** `passport/zkPassportProver.ts` uses `range("birthdate", d, d)`, and
+`app/test/zkPassportProver.test.ts` pins the whole call sequence, including that `eq` never appears.
+Existing seals are unaffected, because nothing on the sealing side changes.
+
+**What it costs if nothing changes upstream.** Every integrator who copies the reference component
+gets a recovery that works up to the last step and then fails on a correct passport, with an error
+message that points at the user's data rather than at the query. The adapter README's own statement
+that "call order is load-bearing" makes the `eq` example look authoritative.
+
+**Proposed change.** Change the reference component and the README to `range`. Better still, have
+`setPassportProof` recognise a disclose commitment that also covers the date-of-birth bytes and name
+the query as the cause. The information is available: the candidate set is known, so the
+date-of-birth-extended variants could be generated and matched against the proof.
+
+**If declined:** the comment and the test here stay, and each integrator relearns this.

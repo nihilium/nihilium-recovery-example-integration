@@ -30,7 +30,6 @@ import {
 import type { DerivedAccount } from "../integration/chains/types.js";
 import type { GateDescription, MethodRegistry } from "../integration/conditions/types.js";
 import type { ProtectTarget } from "../integration/recovery/settlement/coverage.js";
-import type { SealFile } from "../integration/recovery/sealFile.js";
 import { displayRecordId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, Card, Heading, StatusMessage } from "./ds.js";
@@ -141,7 +140,11 @@ export function RecoveryCard({
                     watching={watching}
                     coverage={coverage}
                     onProtectAll={onProtectAll}
-                    sealFile={flow.state.sealFile}
+                    holdsSeal={flow.state.seals.some((ref) => ref.vaultId === vault.vaultId)}
+                    hostSync={flow.state.hostSync[vault.vaultId]}
+                    // Built from storage at the click, never the copy taken at sealing: a chain
+                    // added since then is otherwise missing from the file the user keeps.
+                    onDownloadSeal={async () => downloadSeal(vault, await flow.exportSeal(vault))}
                     chainLabel={chainLabel}
                     covers={flow.covers}
                     onOpenHandover={onOpenHandover}
@@ -191,7 +194,9 @@ function SealedBody({
     watching,
     coverage,
     onProtectAll,
-    sealFile,
+    holdsSeal,
+    hostSync,
+    onDownloadSeal,
     chainLabel,
     covers,
     onOpenHandover,
@@ -215,7 +220,11 @@ function SealedBody({
      */
     coverage: { targets: readonly ProtectTarget[]; stale: readonly string[] };
     onProtectAll: () => void;
-    sealFile: SealFile | null;
+    /** Whether this browser holds the seal — the one thing a file cannot be rebuilt without. */
+    holdsSeal: boolean;
+    /** Whether the records are on the record host. `undefined` until the first sync has answered. */
+    hostSync: { ok: boolean; message: string } | undefined;
+    onDownloadSeal: () => Promise<void>;
     chainLabel: string;
     /** Whether the chain on screen is in this vault. */
     covers: boolean;
@@ -232,6 +241,7 @@ function SealedBody({
     abortLog: readonly string[];
 }) {
     const abortable = isAbortable(stage);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
     return (
         <details className="disclosure">
             <summary>
@@ -245,6 +255,32 @@ function SealedBody({
                 <span className="disclosure__spacer row">
                     {stage !== null && <StageBadge stage={stage} />}
                     <WatchBadge watching={watching} />
+                    {/* The one action worth reaching without opening the card. Protecting a funded
+                        chain is time-sensitive in a way the rest of the body is not, and it was the
+                        only reason left to expand a card whose whole point is that it stays shut.
+
+                        Only when a press would do something: `targets` is the chains it would
+                        touch, so an empty one would be a button that opens a dialog to say there is
+                        nothing to do. Reviewing coverage stays in the body, which has room to say
+                        why a chain was skipped.
+
+                        `preventDefault` is what stops the press toggling the disclosure — the click
+                        reaches `<summary>` regardless, and it is the default action rather than the
+                        propagation that opens the card. `stopPropagation` is belt and braces for
+                        the same thing. CSS hides this once the card is open, so the body's copy of
+                        the button is never a second one on screen. */}
+                    {vault.spent === null && coverage.targets.length > 0 && (
+                        <Button
+                            className="disclosure__action"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onProtectAll();
+                            }}
+                        >
+                            Protect all chains with funds
+                        </Button>
+                    )}
                 </span>
             </summary>
 
@@ -326,9 +362,9 @@ function SealedBody({
                 <div className="card-foot">
                     <span className="muted">
                         Seal file:{" "}
-                        {sealFile === null ? (
-                            // Reported, not hidden: this browser holds the seal but not the file,
-                            // and only the copy on disk can recover elsewhere.
+                        {!holdsSeal ? (
+                            // Reported, not hidden: this browser no longer holds the seal, and only
+                            // a copy on disk can recover elsewhere.
                             <span>not in this browser</span>
                         ) : (
                             // `TextLink` takes an href and nothing else, and this is an action
@@ -337,11 +373,27 @@ function SealedBody({
                             <button
                                 type="button"
                                 className="linkish"
-                                onClick={() => downloadSeal(vault, sealFile)}
+                                onClick={() => {
+                                    setDownloadError(null);
+                                    onDownloadSeal().catch((error: unknown) =>
+                                        setDownloadError(
+                                            error instanceof Error ? error.message : String(error),
+                                        ),
+                                    );
+                                }}
                             >
                                 Download
                             </button>
                         )}
+                        {downloadError !== null && (
+                            <span className="verdict verdict--blocking"> {downloadError}</span>
+                        )}
+                    </span>
+                    {/* Records belong everywhere, and the host is where a fresh device finds them —
+                        including every chain added after the seal file was saved. Said as a fact,
+                        and never as "ok" before the host has actually answered. */}
+                    <span className={hostSync?.ok === false ? "verdict verdict--blocking" : "muted"}>
+                        Records: {hostSync === undefined ? "checking the record host…" : hostSync.message}
                     </span>
                     {/* Abort sits beside Replace because they are the two things an owner does to
                         a gate they did not ask for: refuse this attempt, or change who can open the

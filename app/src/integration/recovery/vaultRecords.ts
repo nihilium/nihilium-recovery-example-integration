@@ -102,6 +102,12 @@ export interface VaultRecord {
      * is still the authority on what is actually installed — this is what the *next* protect writes.
      */
     timelockSeconds?: number;
+    /**
+     * Where this vault's records and chain contexts are replicated, as base URLs. Written into the
+     * seal file, so a file downloaded once still finds chains added after it. Absent on vaults from
+     * before the record host existed; those fall back to the app's configured host.
+     */
+    recordHosts?: readonly string[];
 }
 
 export class VaultRecordStore {

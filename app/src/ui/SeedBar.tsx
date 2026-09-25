@@ -21,7 +21,7 @@ import {
     SEED_RECOVERY_LABEL,
     type SeedRecovery,
 } from "../integration/recovery/recoveryCatalogue.js";
-import { AddressChip } from "./AddressChip.js";
+import { SecretPhrase } from "./SecretPhrase.js";
 import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Notice } from "./Notice.js";
 
@@ -67,8 +67,8 @@ export function SeedBar({
                     <strong className="seed-bar__name">{current.label}</strong>
                     {/* Copyable, because the phrase is the thing a reader takes elsewhere — into a
                         faucet, another wallet, or a note — and selecting twelve words by hand from
-                        a row this dense is how a word gets dropped. */}
-                    <AddressChip value={current.mnemonic} display={current.mnemonic} />
+                        a row this dense is how a word gets dropped. Blurred until shown. */}
+                    <SecretPhrase phrase={current.mnemonic} />
                     <RecoveryDot recovery={recoveryFor(current.mnemonic)} />
                 </span>
                 <span className="row">

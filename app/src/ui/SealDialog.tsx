@@ -9,17 +9,21 @@
  * one. Leaving the form on the page made a wallet look like a signup flow, and put an irreversible
  * button permanently in reach.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type {
     GatePreset,
     MethodRegistry,
     PreflightVerdict,
+    RecoveryMethod,
     Subject,
+    SubjectField,
+    SubjectVerification,
 } from "../integration/conditions/types.js";
+import { EMAIL_KIND_ID } from "../integration/conditions/subjects/email.js";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
 import { useEmailDomainChecks } from "../demo/useEmailDomainChecks.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
-import { Button, StatusMessage, TextInput } from "./ds.js";
+import { Button, Checkbox, StatusMessage, TextInput } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Transcript } from "./Transcript.js";
 import { Notice } from "./Notice.js";
@@ -42,13 +46,38 @@ import { AddressChip } from "./AddressChip.js";
  * as a broken demo rather than as the lesson. Type `@fastmail.com` into any of them to see the
  * blocking path, which is one keystroke away on purpose.
  */
-const SUGGESTED = [
+const SUGGESTED_EMAILS = [
     "alice@gmail.com",
     "bob@proton.me",
     "carol@outlook.com",
     "dan@hotmail.com",
     "erin@gmail.com",
 ];
+
+type Draft = Readonly<Record<string, string>>;
+
+/**
+ * Prefills, by subject kind. Only the email kind gets any: a guardian's address can be anyone's for
+ * a demo, but a passport kind commits to a real document, and a made-up name would buy a seal that
+ * no passport on earth can open.
+ */
+function suggestedDraft(kindId: string, index: number): Draft {
+    const email = SUGGESTED_EMAILS[index];
+    return kindId === EMAIL_KIND_ID && email !== undefined ? { email } : {};
+}
+
+function draftsFor(kindId: string, count: number, prev: readonly Draft[] = []): Draft[] {
+    return Array.from({ length: count }, (_, i) => prev[i] ?? suggestedDraft(kindId, i));
+}
+
+function recommendedPreset(method: RecoveryMethod): GatePreset {
+    return method.presets.find((option) => option.recommended) ?? method.presets[0]!;
+}
+
+/** A render hint to an input type. The design system's input has no date type; a date is text. */
+function inputType(field: SubjectField): "email" | "text" {
+    return field.kind === "email" ? "email" : "text";
+}
 
 type Step = "method" | "gate" | "guardians" | "confirm" | "done";
 
@@ -79,7 +108,7 @@ export function SealDialog({
     const method = methods.require(offerId);
 
     const kind = method.kinds[0]!;
-    const recommended = method.presets.find((option) => option.recommended) ?? method.presets[0]!;
+    const recommended = recommendedPreset(method);
 
     // Mounted only while it is open (see `RecoveryCard`), so every field below starts fresh on each
     // run — including a re-seal, where the set being replaced is not a starting point for the set
@@ -90,17 +119,22 @@ export function SealDialog({
     const [timelock, setTimelock] = useState(
         replacingNow?.timelockSeconds ?? DEFAULT_TIMELOCK_SECONDS,
     );
-    const [drafts, setDrafts] = useState<string[]>(() =>
-        Array.from({ length: recommended.subjectCount }, (_, i) => SUGGESTED[i] ?? ""),
+    const [drafts, setDrafts] = useState<Draft[]>(() =>
+        draftsFor(kind.id, recommended.subjectCount),
     );
     const [downloaded, setDownloaded] = useState(false);
+    /**
+     * Per row, the exact lines the user confirmed against their document. Keyed by the lines rather
+     * than a boolean, so editing the name — which changes the lines — withdraws the confirmation.
+     */
+    const [confirmed, setConfirmed] = useState<Record<number, string>>({});
 
     const running = flow.state.phase === "sealing";
 
     // Parsed on every keystroke, and deliberately not memoized: `checkGate` compares canonical ids,
     // so a duplicate is caught before anything is spent rather than by the quorum, later, after the
     // money. Five regex matches per keystroke is not worth a dependency array that has to stay right.
-    const parsed = drafts.map((value) => kind.parse({ kindId: kind.id, values: { email: value } }));
+    const parsed = drafts.map((values) => kind.parse({ kindId: kind.id, values }));
     const subjects: Subject[] = parsed.flatMap((entry) => (entry.ok ? [entry.subject] : []));
     // Aligned to the form's rows, with a hole where a row does not parse yet — the check is per
     // field, and "one of these is not recoverable" is useless without saying which.
@@ -114,6 +148,14 @@ export function SealDialog({
             : [];
     const fieldIssues = parsed.flatMap((entry) => (entry.ok ? [] : entry.issues));
     const named = subjects.length === drafts.length && issues.length === 0 && fieldIssues.length === 0;
+    // What each row asks the user to check by eye, if anything. A seal whose check was skipped is one
+    // the ceremony may never open, and it is paid for either way.
+    const verifications = parsed.map((entry) =>
+        entry.ok && kind.verify !== undefined ? kind.verify(entry.subject) : null,
+    );
+    const verified = verifications.every(
+        (verification, index) => verification === null || confirmed[index] === verification.lines.join("\n"),
+    );
 
     // Derived, not an effect: the ceremony finishing is what advances the last step, and there is no
     // "sealed" the user clicks. Only a run that started *here* counts — reopening the dialog over an
@@ -123,13 +165,22 @@ export function SealDialog({
             ? "done"
             : local;
 
+    function chooseMethod(id: string): void {
+        // A different method has different presets and different fields, so nothing typed for the
+        // last one carries over — an address typed as a guardian is not an identity to seal.
+        const next = methods.require(id);
+        const nextPreset = recommendedPreset(next);
+        setOfferId(id);
+        setPreset(nextPreset);
+        setDrafts(draftsFor(next.kinds[0]!.id, nextPreset.subjectCount));
+        setConfirmed({});
+    }
+
     function choosePreset(next: GatePreset): void {
         setPreset(next);
         // Grow or shrink around what is typed: position is the Shamir index, so rebuilding the array
         // would silently renumber guardians.
-        setDrafts((prev) =>
-            Array.from({ length: next.subjectCount }, (_, i) => prev[i] ?? SUGGESTED[i] ?? ""),
-        );
+        setDrafts((prev) => draftsFor(kind.id, next.subjectCount, prev));
     }
 
     function start(): void {
@@ -176,7 +227,7 @@ export function SealDialog({
                                 // it is not wired here is the useful part.
                                 disabled={!offer.available}
                                 aria-pressed={offer.id === offerId}
-                                onClick={() => setOfferId(offer.id)}
+                                onClick={() => chooseMethod(offer.id)}
                             >
                                 <span className="gate-option__title">{offer.label}</span>
                                 <span className="gate-option__cost">{offer.blurb}</span>
@@ -191,6 +242,7 @@ export function SealDialog({
 
             {step === "gate" && (
                 <div className="stack">
+                    {method.presets.length > 1 && (
                     <div className="gate-picker">
                         {method.presets.map((option) => (
                             <button
@@ -208,10 +260,11 @@ export function SealDialog({
                             </button>
                         ))}
                     </div>
+                    )}
 
                     <div className="field">
                         <span className="field__label">Timelock</span>
-                        <div className="gate-picker">
+                        <div className="gate-picker gate-picker--row">
                             {TIMELOCK_CHOICES.map((choice) => (
                                 <button
                                     key={choice.seconds}
@@ -222,9 +275,10 @@ export function SealDialog({
                                             : "gate-option"
                                     }
                                     aria-pressed={choice.seconds === timelock}
+                                    aria-label={choice.label}
                                     onClick={() => setTimelock(choice.seconds)}
                                 >
-                                    <span className="gate-option__title">{choice.label}</span>
+                                    <span className="gate-option__title">{choice.short}</span>
                                 </button>
                             ))}
                         </div>
@@ -234,37 +288,63 @@ export function SealDialog({
 
             {step === "guardians" && (
                 <div className="stack">
-                    {drafts.map((value, index) => (
-                        <div className="field" key={index}>
-                            {/* The verdict sits outside this label on purpose: it carries a "check
-                                again" button, and a control inside a <label> also activates the
-                                field the label names. */}
-                            <label className="field__labelled">
-                                <span className="field__label">
-                                    {preset.subjectCount === 1
-                                        ? kind.label
-                                        : `${capitalize(kind.noun.one)} ${index + 1} of ${preset.subjectCount}`}
-                                </span>
-                                <TextInput
-                                    type="email"
-                                    value={value}
-                                    ariaLabel={`${kind.noun.one} ${index + 1}`}
-                                    placeholder={kind.fields[0]?.placeholder ?? ""}
-                                    onChange={(event) =>
-                                        setDrafts((prev) =>
-                                            prev.map((entry, i) =>
-                                                i === index ? event.target.value : entry,
-                                            ),
-                                        )
-                                    }
-                                />
-                            </label>
-                            <DomainVerdict
-                                verdict={domains.verdicts[index]}
-                                onRecheck={() => domains.recheck(index)}
-                            />
-                        </div>
-                    ))}
+                    {drafts.map((draft, index) => {
+                        const rowLabel =
+                            preset.subjectCount === 1
+                                ? kind.label
+                                : `${capitalize(kind.noun.one)} ${index + 1} of ${preset.subjectCount}`;
+                        const single = kind.fields.length === 1;
+                        return (
+                            <div className="field" key={index}>
+                                {!single && <span className="field__label">{rowLabel}</span>}
+                                {kind.fields.map((field) => (
+                                    <Fragment key={field.key}>
+                                        {/* The verdict sits outside this label on purpose: it
+                                            carries a "check again" button, and a control inside a
+                                            <label> also activates the field the label names. */}
+                                        <label className="field__labelled">
+                                            <span className="field__label">
+                                                {single ? rowLabel : field.label}
+                                            </span>
+                                            <TextInput
+                                                type={inputType(field)}
+                                                value={draft[field.key] ?? ""}
+                                                ariaLabel={`${single ? kind.noun.one : field.label} ${index + 1}`}
+                                                placeholder={field.placeholder ?? ""}
+                                                onChange={(event) =>
+                                                    setDrafts((prev) =>
+                                                        prev.map((entry, i) =>
+                                                            i === index
+                                                                ? { ...entry, [field.key]: event.target.value }
+                                                                : entry,
+                                                        ),
+                                                    )
+                                                }
+                                            />
+                                        </label>
+                                        {field.kind === "email" && (
+                                            <DomainVerdict
+                                                verdict={domains.verdicts[index]}
+                                                onRecheck={() => domains.recheck(index)}
+                                            />
+                                        )}
+                                    </Fragment>
+                                ))}
+                                {verifications[index] != null && (
+                                    <DocumentCheck
+                                        verification={verifications[index]}
+                                        checked={confirmed[index] === verifications[index].lines.join("\n")}
+                                        onChange={(checked) =>
+                                            setConfirmed((prev) => ({
+                                                ...prev,
+                                                [index]: checked ? verifications[index]!.lines.join("\n") : "",
+                                            }))
+                                        }
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
 
                     {[...fieldIssues, ...issues].map((issue, i) => (
                         <StatusMessage key={i} tone="error">
@@ -286,6 +366,10 @@ export function SealDialog({
                     </ul>
                     {/* The price, before the button that spends it. This reports, so it always shows. */}
                     <p>{method.cost.describe(preset)}</p>
+                    {/* What the file this buys will say about its holder, before it is bought. */}
+                    {method.sealRecords !== undefined && (
+                        <Notice tone="caution">{method.sealRecords}</Notice>
+                    )}
                     <p>Timelock: {timelockLabel(timelock)}.</p>
 
                     {flow.state.logs.seal.length > 0 && (
@@ -334,7 +418,11 @@ export function SealDialog({
         if (step === "method") {
             return (
                 <DialogActions>
-                    <Button onClick={() => setStep("gate")}>How many?</Button>
+                    {/* "How many" only when there is a choice of how many. A method with one gate — the
+                        self guardian — goes straight to the timelock. */}
+                    <Button onClick={() => setStep("gate")}>
+                        {method.presets.length > 1 ? "How many?" : "Timelock"}
+                    </Button>
                 </DialogActions>
             );
         }
@@ -342,7 +430,9 @@ export function SealDialog({
             return (
                 <DialogActions back={{ label: "Back", onClick: () => setStep("method") }}>
                     <Button onClick={() => setStep("guardians")}>
-                        Name {preset.subjectCount} {preset.subjectCount === 1 ? kind.noun.one : kind.noun.many}
+                        {method.presets.length === 1
+                            ? "Your details"
+                            : `Name ${preset.subjectCount} ${preset.subjectCount === 1 ? kind.noun.one : kind.noun.many}`}
                     </Button>
                 </DialogActions>
             );
@@ -350,8 +440,15 @@ export function SealDialog({
         if (step === "guardians") {
             return (
                 <DialogActions back={{ label: "Back", onClick: () => setStep("gate") }}>
-                    <Button onClick={() => setStep("confirm")} disabled={!named || domains.blocking}>
-                        {domains.blocking ? "Waiting on the domain check" : "Review"}
+                    <Button
+                        onClick={() => setStep("confirm")}
+                        disabled={!named || domains.blocking || !verified}
+                    >
+                        {domains.blocking
+                            ? "Waiting on the domain check"
+                            : named && !verified
+                              ? "Confirm the passport lines"
+                              : "Review"}
                     </Button>
                 </DialogActions>
             );
@@ -361,9 +458,9 @@ export function SealDialog({
                 <DialogActions
                     back={{ label: "Back", onClick: () => setStep("guardians"), disabled: running }}
                 >
-                    <Button onClick={start} disabled={running || !named}>
+                    <Button onClick={start} disabled={running || !named || !verified}>
                         {running
-                            ? `Sealing ${preset.subjectCount} ${kind.noun.many}…`
+                            ? `Sealing ${preset.subjectCount} ${preset.subjectCount === 1 ? kind.noun.one : kind.noun.many}…`
                             : `Seal behind ${preset.label.toLowerCase()}`}
                     </Button>
                 </DialogActions>
@@ -386,6 +483,39 @@ export function SealDialog({
             </DialogActions>
         );
     }
+}
+
+/**
+ * Lines to compare against a physical document, and the box that says the user did.
+ *
+ * Rendered under the row it belongs to, before anything is paid: it is the only check a person can
+ * make that the ceremony cannot, and the cost of skipping it is a vault nobody can open.
+ */
+function DocumentCheck({
+    verification,
+    checked,
+    onChange,
+}: {
+    verification: SubjectVerification;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+}) {
+    return (
+        <div className="document-check">
+            <span className="field__label">{verification.title}</span>
+            <ul className="document-check__lines mono">
+                {verification.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                ))}
+            </ul>
+            <Notice tone="caution">{verification.warning}</Notice>
+            <Checkbox
+                label={verification.confirm}
+                checked={checked}
+                onChange={(event) => onChange(event.target.checked)}
+            />
+        </div>
+    );
 }
 
 /**

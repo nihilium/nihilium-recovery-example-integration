@@ -7,9 +7,11 @@ and one file worth copying.
 It is not a wallet. It holds one plaintext 12-word seed phrase, in the open, on purpose — the point
 is to lose it convincingly, not to guard it.
 
-> **Status:** the wallet, the role identities and the first recovery method (an email quorum, sealed
-> and recovered through the live ceremony) exist. Settlement, the watchtower, the veto, the record
-> host and the scenario runner do not. This file states the goal; it is not a log of what exists.
+> **Status:** the wallet, the role identities, on-chain settlement (EVM and Solana, via the relayer
+> and veto roles), the record host, and two recovery methods exist: an email quorum, and the owner's
+> own email and passport fused into one ceremony — both recovered through the live ceremony. The
+> watchtower and the scenario runner do not. This file states the goal; it is not a log of what
+> exists.
 
 ## The two things this repo optimises for
 

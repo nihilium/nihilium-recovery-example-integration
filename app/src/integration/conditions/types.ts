@@ -64,6 +64,11 @@ export interface Subject {
 export interface SubjectHooks {
     onProgress?(message: string): void;
     onPhase?(phase: SubjectPhase): void;
+    /**
+     * Something this member needs a human to act on, or `null` once it no longer does. Re-emitted as
+     * it changes, so a UI renders the latest and never accumulates stale ones.
+     */
+    onPrompt?(prompt: MemberPrompt | null): void;
 }
 
 export interface SubjectIssue {
@@ -77,6 +82,15 @@ export interface SubjectIssue {
 export type ParsedSubject =
     | { ok: true; subject: Subject }
     | { ok: false; issues: readonly SubjectIssue[] };
+
+/** Lines to compare against a document, what a difference costs, and what the user confirms. */
+export interface SubjectVerification {
+    title: string;
+    /** Any one of these must match exactly. */
+    lines: readonly string[];
+    warning: string;
+    confirm: string;
+}
 
 export type PreflightStatus = "checking" | "ok" | "warning" | "blocking" | "unknown";
 
@@ -118,6 +132,19 @@ export interface SubjectKind {
      * never constructs an adapter, never reads a mode, and never imports an adapter package.
      */
     adapterFor(subject: Subject, index: number): ConditionAdapter;
+
+    /**
+     * What happens to this subject when a recovery selects it — "will be emailed". Status copy, set
+     * by the kind because only the kind knows what its ceremony does to a person.
+     */
+    readonly contact: string;
+
+    /**
+     * Something the user must check against a physical document before paying, because the ceremony
+     * cannot: the passport's machine-readable name lines, for a passport kind. `null` until the
+     * subject has enough to check; absent entirely where there is nothing to check.
+     */
+    verify?(subject: Subject): SubjectVerification | null;
 
     /**
      * This subject as its adapter's `buildCondition` wants it. Adapter-private by design — the SDK
@@ -167,7 +194,11 @@ export interface GateRecord {
     methodId: string;
     threshold: number;
     subjectCount: number;
-    /** From the quorum's descriptor. What an interrupted, already-paid setup resumes against. */
+    /**
+     * From the quorum's descriptor: what an interrupted, already-paid setup resumes against. A gate
+     * with a single ceremony has nothing to resume — it either sealed or was never paid for — and
+     * records a fresh random id so the field still names one setup.
+     */
     setId: string;
     /** In Shamir order. */
     subjects: readonly StoredSubject[];
@@ -203,10 +234,20 @@ export type SubjectPhase =
     | { kind: "done"; message: string }
     | { kind: "failed"; reason: string };
 
-export interface SubjectPrompt {
-    index: number;
+/** A prompt as a member raises it. The method attaches the slot index. */
+export interface MemberPrompt {
     title: string;
     detail: string;
+    /**
+     * A link the human must open, typically on another device: rendered as a QR code and as a deep
+     * link. Safe on a live ceremony, unlike `resolve` — opening a link is the human acting, not the
+     * UI answering for them.
+     */
+    link?: { url: string; label: string };
+    /** Discard this request and issue a fresh one. For a request that went stale or was declined. */
+    retry?: () => void;
+    /** The last attempt failed, and why. The prompt stays up: a retry is still possible. */
+    error?: string;
     /**
      * Present **only** on a simulation. A live ceremony has no button that makes a human answer
      * their mail, and the absence of this field is what stops the UI rendering one — not a mode
@@ -214,6 +255,10 @@ export interface SubjectPrompt {
      */
     resolve?: () => void;
     reject?: (reason: string) => void;
+}
+
+export interface SubjectPrompt extends MemberPrompt {
+    index: number;
 }
 
 /** One member's seal, as `onSubjectSealed` reports it. Domain-only summary: safe to log. */
@@ -255,7 +300,8 @@ export interface MethodRecoveryParams {
     selected: readonly number[];
     onSubjectProgress?(index: number, message: string): void;
     onSubjectPhase?(index: number, phase: SubjectPhase): void;
-    onSubjectPrompt?(prompt: SubjectPrompt): void;
+    /** `null` clears slot `index`'s prompt: its human has done what it asked. */
+    onSubjectPrompt?(index: number, prompt: SubjectPrompt | null): void;
 }
 
 export interface MethodRecovery {
@@ -273,6 +319,12 @@ export interface RecoveryMethod {
     readonly blurb: string;
     /** Said before every setup. "Covers loss, not theft" lives here, not in a README. */
     readonly limits: readonly string[];
+    /**
+     * What the seal file discloses about the person it protects, when that is more than a domain.
+     * Shown before sealing: a seal is a bearer file that gets copied into backups, and what it names
+     * cannot be taken back.
+     */
+    readonly sealRecords?: string;
     readonly mode: CeremonyMode;
     readonly conditionType: ConditionType;
 

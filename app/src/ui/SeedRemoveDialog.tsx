@@ -21,7 +21,7 @@ import type { ChainRegistry } from "../integration/chains/types.js";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
 import { deriveWallet } from "../demo/wallet.js";
 import type { SeedEntry } from "../demo/seeds.js";
-import { AddressChip } from "./AddressChip.js";
+import { SecretPhrase } from "./SecretPhrase.js";
 import { Button, StatusMessage } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Notice } from "./Notice.js";
@@ -99,7 +99,7 @@ export function SeedRemoveDialog({
 
                 <div className="row">
                     <span className="field__label">Copy it first</span>
-                    <AddressChip value={seed.mnemonic} display={seed.mnemonic} />
+                    <SecretPhrase phrase={seed.mnemonic} />
                 </div>
 
                 {checking && <p className="muted">Checking what these accounts hold…</p>}

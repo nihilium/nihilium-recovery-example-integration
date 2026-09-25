@@ -1,19 +1,17 @@
 /**
- * The file a user is handed at seal time, and the thing v1 could not do.
+ * The file a user is handed at seal time: the seal and the instructions, never the records.
  *
- * v1 carried the seal and the chain context and **not** the encrypted records — so importing it
- * only worked in a browser that already held them, which is the browser that did not need the file.
- * On a fresh device it recovered nothing and reported the SDK's "holds no records" error, which
- * reads as though the vault was empty rather than as though the file was incomplete.
- *
- * Records are inert without the seal, so carrying them costs nothing in secrecy: §12's rule for
- * records is the opposite of the seal's. The file as a whole stays bearer material, because the
- * seal is in it.
+ * v1 carried the seal and the chain context and not the records, so it only opened a vault in the
+ * browser that already held them. v2 fixed that by copying the records in — and so froze them on
+ * download day: a chain added later was simply not in the file, and a recovery from it did not know
+ * the chain existed. v3 carries *where* the records live instead. The records and every chain's
+ * context are on the record host, and a file downloaded once keeps recovering a vault that grows.
  */
 import { describe, expect, it } from "vitest";
 import {
     SEAL_FILE_FORMAT,
     SEAL_FILE_FORMAT_V1,
+    SEAL_FILE_FORMAT_V2,
     parseSealFile,
     sealFileLimitation,
     sealFileName,
@@ -28,6 +26,7 @@ const VAULT = {
     publicComponent: { format: "demo", recordId: "AAAA-BBBB-CCCC" },
     gate: { methodId: "email-quorum", threshold: 2, summary: "any 2 of 3" },
     chains: [{ chainId: "evm-sepolia", accountId: "0xabc" }],
+    recordHosts: ["https://host.example/api"],
 } as unknown as VaultRecord;
 
 const SEAL = { format: "demo-seal", payload: { anything: true } } as never;
@@ -37,10 +36,11 @@ const ENTRIES = [
 ] as never[];
 
 describe("writing a seal file", () => {
-    it("writes v2 and carries the records", () => {
-        const file = toSealFile(VAULT, SEAL, ENTRIES);
+    it("writes v3: the seal and where the records live, and no records", () => {
+        const file = toSealFile(VAULT, SEAL);
         expect(file.format).toBe(SEAL_FILE_FORMAT);
-        expect(file.entries).toHaveLength(2);
+        expect(file.recordHosts).toEqual(["https://host.example/api"]);
+        expect(file.entries).toBeUndefined();
         expect(file.vaultId).toBe("vault-abc123");
     });
 
@@ -52,8 +52,8 @@ describe("writing a seal file", () => {
     });
 
     it("round-trips through JSON", () => {
-        const parsed = parseSealFile(JSON.stringify(toSealFile(VAULT, SEAL, ENTRIES)));
-        expect(parsed.entries).toHaveLength(2);
+        const parsed = parseSealFile(JSON.stringify(toSealFile(VAULT, SEAL)));
+        expect(parsed.recordHosts).toEqual(["https://host.example/api"]);
         expect(parsed.gate.summary).toBe("any 2 of 3");
     });
 });
@@ -69,22 +69,25 @@ describe("reading an older file", () => {
         gate: VAULT.gate,
         chains: VAULT.chains,
     };
+    const v2: SealFile = { ...v1, format: SEAL_FILE_FORMAT_V2, entries: ENTRIES };
 
     it("still loads, rather than being refused for being old", () => {
         // Refusing would strand every file already on somebody's disk — and the seal in it is the
         // only copy of the bearer half for a vault whose seed may be gone.
-        const parsed = parseSealFile(JSON.stringify(v1));
-        expect(parsed.vaultId).toBe("vault-old");
+        expect(parseSealFile(JSON.stringify(v1)).vaultId).toBe("vault-old");
+        expect(parseSealFile(JSON.stringify(v2)).entries).toHaveLength(2);
     });
 
     it("says what it cannot do instead of failing later with a confusing error", () => {
         expect(sealFileLimitation(v1)).toContain("no encrypted records");
-        expect(sealFileLimitation(toSealFile(VAULT, SEAL, ENTRIES))).toBeNull();
+        expect(sealFileLimitation(v2)).toBeNull();
+        expect(sealFileLimitation(toSealFile(VAULT, SEAL))).toBeNull();
     });
 
-    it("treats a v2 file with an empty record list as the same limitation", () => {
-        // Same practical outcome as v1, so it gets the same warning rather than a silent pass.
-        expect(sealFileLimitation(toSealFile(VAULT, SEAL, []))).toContain("no encrypted records");
+    it("warns about a v3 file that names no record host", () => {
+        // Same practical outcome as v1: nothing in the file says where the records are.
+        const hostless = toSealFile({ ...VAULT, recordHosts: [] } as VaultRecord, SEAL);
+        expect(sealFileLimitation(hostless)).toContain("names no record host");
     });
 });
 
@@ -100,7 +103,7 @@ describe("refusing a file that is not one of ours", () => {
     });
 
     it("refuses a file carrying no gate or no chains", () => {
-        const gutted = { ...toSealFile(VAULT, SEAL, ENTRIES), chains: [] };
+        const gutted = { ...toSealFile(VAULT, SEAL), chains: [] };
         expect(() => parseSealFile(JSON.stringify(gutted))).toThrow(/incomplete/);
     });
 });

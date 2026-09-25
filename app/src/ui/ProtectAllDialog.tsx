@@ -26,6 +26,7 @@ export function ProtectAllDialog({
     skipped,
     protectAll,
     fees,
+    reading,
 }: {
     open: boolean;
     onClose: () => void;
@@ -33,8 +34,18 @@ export function ProtectAllDialog({
     skipped: readonly SkippedChain[];
     protectAll: ProtectAll;
     fees: FeeEstimator;
+    /**
+     * The chains are being re-read. Opening this dialog asks again rather than trusting the read
+     * the page made at load: funds sent since — from a faucet, say — are exactly the ones a stale
+     * read files as "no funds" and skips.
+     */
+    reading: boolean;
 }) {
     const { running, done, log, results } = protectAll;
+
+    // Only before a run: the run itself triggers a re-read when it lands, and that must not hide
+    // the rows it is reporting on.
+    const waiting = reading && !running && !done;
     const failures = results.filter((row) => row.failure !== null);
 
     /**
@@ -70,11 +81,13 @@ export function ProtectAllDialog({
                     {!done && (
                         <Button
                             onClick={() => void protectAll.run(targets)}
-                            disabled={running || targets.length === 0}
+                            disabled={running || waiting || targets.length === 0}
                         >
                             {running
                                 ? "Protecting…"
-                                : targets.length === 1
+                                : waiting
+                                  ? "Reading every chain…"
+                                  : targets.length === 1
                                   ? "Protect 1 chain"
                                   : `Protect ${targets.length} chains`}
                         </Button>
@@ -83,7 +96,10 @@ export function ProtectAllDialog({
             }
         >
             <div className="stack">
-                {targets.length === 0 ? (
+                {waiting ? (
+                    // Not "all protected": an empty list while reading is no answer at all.
+                    <p className="muted">Reading every chain&apos;s balance and protection…</p>
+                ) : targets.length === 0 ? (
                     <p>All funded chains are protected.</p>
                 ) : (
                     <>

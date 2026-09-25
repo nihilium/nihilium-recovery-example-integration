@@ -100,8 +100,27 @@ export interface SweepResult {
     moved: bigint;
 }
 
+/** One reason a chain would refuse a handover, found before anything is spent. */
+export interface HandoverProblem {
+    /** Machine-readable, for tests and transcripts: `not-installed`, `owner-mismatch`, … */
+    code: string;
+    /** Written for the person about to start a recovery, not for a log. */
+    message: string;
+    /** True when the handover cannot succeed, rather than merely might not. */
+    blocking: boolean;
+}
+
 /** One chain's implementation. `null` on a chain this demo cannot carry through. */
 export interface ChainHandover {
+    /**
+     * Every reason `initiate` would be refused, read from the chain **before** a ceremony.
+     *
+     * Read-only and free — a few RPC reads — which is the whole argument for running it first. A
+     * recovery is paid, slow and spends the vault; finding out afterwards that the chain holds no
+     * module, or someone else's key, is finding out after the one thing that cannot be redone.
+     * Throws on an unreadable chain: that is not a problem found, it is a check that did not run.
+     */
+    preflight(params: { chainRecord: HandoverAccount }): Promise<HandoverProblem[]>;
     initiate(params: InitiateParams): Promise<InitiateResult>;
     execute(params: ExecuteParams): Promise<{ hash: string }>;
     sweep(params: SweepParams): Promise<SweepResult>;

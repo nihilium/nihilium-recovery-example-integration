@@ -15,6 +15,8 @@
         "@nihilium-demo/keys": "*",
         "@nihilium/recovery-condition-quorum": "file:../../recovery-sdk/packages/adapters/condition-quorum",
         "@nihilium/recovery-condition-zkemail": "file:../../recovery-sdk/packages/adapters/condition-zkemail",
+        "@nihilium/recovery-condition-zkemail-zkpassport": "file:../../recovery-sdk/packages/adapters/condition-zkemail-zkpassport",
+        "@nihilium/recovery-condition-zkpassport": "file:../../recovery-sdk/packages/adapters/condition-zkpassport",
         "@nihilium/recovery-core": "file:../../recovery-sdk/packages/core",
         "@nihilium/recovery-key-evm": "file:../../recovery-sdk/packages/adapters/key-evm",
         "@nihilium/recovery-key-solana": "file:../../recovery-sdk/packages/adapters/key-solana",
@@ -31,10 +33,12 @@
         "@scure/bip32": "^2.4.0",
         "@scure/bip39": "^2.4.0",
         "@solana/web3.js": "^1.98.0",
+        "@zkpassport/sdk": "0.16.2",
         "buffer": "^6.0.3",
         "permissionless": "^0.4.1",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
+        "react-qr-code": "^2.0.15",
         "viem": "^2.56.7"
     },
     "devDependencies": {

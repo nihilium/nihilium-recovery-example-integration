@@ -9,12 +9,13 @@
  * Demo-shaped because it builds chain clients from `DemoEnv`; the work itself is in
  * `integration/recovery/handover/`.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     handoverProgress,
     type HandoverRecord,
 } from "../integration/recovery/handovers.js";
 import { moveAll } from "../integration/recovery/handover/run.js";
+import { discardVault } from "../integration/recovery/vault.js";
 import { destinationFor, destinationsFor } from "./destinations.js";
 import { seedFingerprint, type SeedBook } from "./seeds.js";
 import { handoverFor } from "./handoverRegistry.js";
@@ -31,16 +32,36 @@ export interface HandoverGroup {
     canSign: boolean;
 }
 
+/** A recovery carried all the way through, kept only long enough to say so. */
+export interface CompletedRecovery {
+    vaultId: string;
+    chains: readonly { chainId: string; sweepTx: string | null }[];
+}
+
 export interface HandoverState {
     groups: readonly HandoverGroup[];
+    /** The last recovery that finished and was discarded, until the user dismisses the line. */
+    completed: CompletedRecovery | null;
     /** Which vault is being moved right now, or `null`. */
     moving: string | null;
     log: readonly string[];
     error: string | null;
 }
 
-export function useHandovers(bindings: AppBindings, seeds: SeedBook) {
+export function useHandovers(
+    bindings: AppBindings,
+    seeds: SeedBook,
+    /** Called after a finished recovery is discarded, so the vault list can drop the spent vault. */
+    onRecoveryClosed?: () => void,
+) {
     const [records, setRecords] = useState<readonly HandoverRecord[]>([]);
+    const [completed, setCompleted] = useState<CompletedRecovery | null>(null);
+    // A ref, so a caller passing a fresh arrow each render does not rebuild everything below it —
+    // and re-run the on-load check below on every render.
+    const onClosed = useRef(onRecoveryClosed);
+    useEffect(() => {
+        onClosed.current = onRecoveryClosed;
+    }, [onRecoveryClosed]);
     const [moving, setMoving] = useState<string | null>(null);
     const [log, setLog] = useState<readonly string[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -93,6 +114,51 @@ export function useHandovers(bindings: AppBindings, seeds: SeedBook) {
         [bindings, reload],
     );
 
+    /**
+     * Discard a recovery once it has done everything it can: every chain this build can hand over
+     * has had its funds moved. Only then — a failed sweep, or a chain still counting down, keeps the
+     * rows, because a submitted row is the only record of an intent whose signing key is gone.
+     *
+     * Chains with no handover in this build at all (Zcash) never move and never will; they do not
+     * hold a finished recovery open. The spent vault goes with it: its seal opens nothing any more,
+     * and its keys were exposed by the recovery that just finished.
+     */
+    const closeIfFinished = useCallback(
+        async (vaultId: string): Promise<boolean> => {
+            const rows = await bindings.handovers.forVault(vaultId);
+            const movable = rows.filter((row) => handoverFor(bindings, row.chainId) !== null);
+            if (movable.length === 0 || !movable.every((row) => row.stage === "swept")) return false;
+
+            for (const row of rows) await bindings.handovers.delete(row.id);
+            await discardVault(bindings.stores, vaultId);
+            setCompleted({
+                vaultId,
+                chains: movable.map((row) => ({ chainId: row.chainId, sweepTx: row.sweepTx })),
+            });
+            onClosed.current?.();
+            return true;
+        },
+        [bindings],
+    );
+
+    // Also on load: a recovery swept before this rule existed, or in a session that closed before
+    // the check ran, would otherwise hold its tab open for good. `closeIfFinished` re-reads the rows
+    // and decides; this only skips the obvious non-candidates.
+    useEffect(() => {
+        if (moving !== null) return;
+        const swept = [...new Set(records.map((row) => row.vaultId))].filter((vaultId) =>
+            records.some((row) => row.vaultId === vaultId && row.stage === "swept"),
+        );
+        if (swept.length === 0) return;
+        void (async () => {
+            let closed = false;
+            for (const vaultId of swept) closed = (await closeIfFinished(vaultId)) || closed;
+            // Only when something went: reloading unconditionally hands back a new array, which
+            // re-runs this effect — forever, for a vault that is part-way swept.
+            if (closed) await reload();
+        })();
+    }, [records, moving, closeIfFinished, reload]);
+
     const move = useCallback(
         /**
          * `chainIds` narrows the run to the chains the chain says are ready. Without it every row
@@ -138,10 +204,11 @@ export function useHandovers(bindings: AppBindings, seeds: SeedBook) {
                 setError(failure instanceof Error ? failure.message : String(failure));
             } finally {
                 setMoving(null);
+                await closeIfFinished(vaultId);
                 await reload();
             }
         },
-        [bindings, reload, seeds.seeds],
+        [bindings, reload, seeds.seeds, closeIfFinished],
     );
 
     /**
@@ -169,7 +236,8 @@ export function useHandovers(bindings: AppBindings, seeds: SeedBook) {
     );
 
     return {
-        state: { groups, moving, log, error } as HandoverState,
+        state: { groups, completed, moving, log, error } as HandoverState,
+        clearCompleted: useCallback(() => setCompleted(null), []),
         move,
         setDestination,
         discard,

@@ -47,6 +47,8 @@ export default defineConfig({
             "@nihilium/recovery-core",
             "@nihilium/recovery-condition-quorum",
             "@nihilium/recovery-condition-zkemail",
+            "@nihilium/recovery-condition-zkemail-zkpassport",
+            "@nihilium/recovery-condition-zkpassport",
             "@nihilium/recovery-key-evm",
             "@nihilium/recovery-key-solana",
             "@nihilium/recovery-nihilium",

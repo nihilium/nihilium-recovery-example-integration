@@ -15,6 +15,8 @@
  */
 import { Keypair } from "@solana/web3.js";
 import { base58 } from "@scure/base";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { toSolanaAddress } from "@nihilium/recovery-key-solana";
 import { solanaVaultAddresses } from "../settlement/solana/addresses.js";
 import { createVaultProgram, keypairFromSecret } from "../settlement/solana/program.js";
 import { abortRecovery, type SolanaIntentInputs } from "../settlement/solana/recovery.js";
@@ -26,6 +28,7 @@ import type {
     AbortParams,
     ChainHandover,
     ExecuteParams,
+    HandoverProblem,
     InitiateParams,
     InitiateResult,
     SweepParams,
@@ -69,6 +72,91 @@ export function createSolanaHandover(config: SolanaHandoverConfig): ChainHandove
     };
 
     return {
+        async preflight({ chainRecord }): Promise<HandoverProblem[]> {
+            if (chainRecord.signerAddress === undefined) {
+                return [
+                    {
+                        code: "no-creator",
+                        blocking: true,
+                        message:
+                            "This vault did not record who created the Solana vault account, so its " +
+                            "address cannot be rebuilt. Protect this chain again.",
+                    },
+                ];
+            }
+            if (chainRecord.recoveryPubKeyHex === undefined) {
+                return [
+                    {
+                        code: "no-recovery-key",
+                        blocking: true,
+                        message: "This vault recorded no recovery key for this account.",
+                    },
+                ];
+            }
+            const ctx = createVaultProgram({
+                rpcUrl: config.rpcUrl,
+                cluster: config.cluster,
+                payer: unusedSigner(),
+            });
+            const addresses = addressesFor(chainRecord.signerAddress, chainRecord.accountId);
+
+            // No account at all is what "never protected" looks like here: on Solana the protected
+            // account has to be created before a key can be registered on it.
+            const info = await ctx.connection.getAccountInfo(addresses.vault, "confirmed");
+            if (info === null) {
+                return [
+                    {
+                        code: "not-installed",
+                        blocking: true,
+                        message:
+                            "This Solana vault account does not exist, so nothing on-chain would " +
+                            "honour a recovery key. Protect the account first — sealing is only the " +
+                            "off-chain half.",
+                    },
+                ];
+            }
+
+            const state = await readVaultState(ctx, addresses);
+            if (!state.registered) {
+                return [
+                    {
+                        code: "not-installed",
+                        blocking: true,
+                        message:
+                            "No recovery key is registered on this Solana vault. Protect the account " +
+                            "first — sealing is only the off-chain half.",
+                    },
+                ];
+            }
+
+            const problems: HandoverProblem[] = [];
+            const expected = toSolanaAddress({
+                algorithm: "ed25519",
+                bytes: hexToBytes(chainRecord.recoveryPubKeyHex.replace(/^0x/, "")),
+            });
+            if (state.recoveryOwner !== expected) {
+                problems.push({
+                    code: "owner-mismatch",
+                    blocking: true,
+                    message:
+                        `The chain expects recovery owner ${state.recoveryOwner}, and this vault's key ` +
+                        `is ${expected}. The account is protected by a different vault — usually because ` +
+                        "the guardians were replaced and the rotation never landed on-chain.",
+                });
+            }
+            const attempt = state.clock.state;
+            if (attempt !== null && attempt !== "EXECUTED" && attempt !== "ABORTED") {
+                problems.push({
+                    code: "attempt-in-flight",
+                    blocking: true,
+                    message:
+                        `A recovery is already ${attempt} on this account. One attempt at a time; ` +
+                        "this one must be executed or aborted first.",
+                });
+            }
+            return problems;
+        },
+
         async initiate(params: InitiateParams): Promise<InitiateResult> {
             const ctx = createVaultProgram({
                 rpcUrl: config.rpcUrl,

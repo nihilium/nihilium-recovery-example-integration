@@ -47,6 +47,46 @@ const REPORTS: readonly { file: string; phrase: string; why: string }[] = [
     },
     {
         file: "src/ui/RecoverDialog.tsx",
+        phrase: "No chain in this vault can be handed over",
+        why: "a recovery the chain will refuse still spends the vault. Said before anything is sent",
+    },
+    {
+        file: "src/ui/ResetDialog.tsx",
+        phrase: "only the phrase reaches it",
+        why: "a funded seed that was sealed but never protected is lost with the reset unless its phrase is kept",
+    },
+    {
+        file: "src/ui/ResetDialog.tsx",
+        phrase: "display=\"copy the phrase\"",
+        why: "the one action that saves those funds, offered while the phrase still exists",
+    },
+    {
+        file: "src/ui/SealDialog.tsx",
+        phrase: "{verification.warning}",
+        why: "the passport name lines to compare, and that a mismatch is a vault no passport opens",
+    },
+    {
+        file: "src/ui/SealDialog.tsx",
+        phrase: "method.sealRecords",
+        why: "what the seal file names about its holder, before it is bought. A date of birth cannot be rotated",
+    },
+    {
+        file: "src/ui/RecoverDialog.tsx",
+        phrase: "<PassportScan key={prompt.index} prompt={prompt} />",
+        why: "the passport half of a recovery. Without it the ceremony waits on a scan nobody can start",
+    },
+    {
+        file: "src/ui/PassportScan.tsx",
+        phrase: "<QRCode value={link.url}",
+        why: "the request itself, scannable from the phone that holds the passport app",
+    },
+    {
+        file: "src/ui/PassportScan.tsx",
+        phrase: "prompt.error",
+        why: "why a scan was refused — a mismatch leaves the recovery running and a retry possible",
+    },
+    {
+        file: "src/ui/RecoverDialog.tsx",
         phrase: "Vault spent · {state.result.keys.length} chain key",
         why: "what a recovery cost: the vault is spent and its keys exposed. The SDK sentence is in the transcript",
     },

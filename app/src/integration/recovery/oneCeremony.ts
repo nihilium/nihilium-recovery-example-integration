@@ -31,8 +31,9 @@
  *
  * **To replace:** all of it, the day the SDK batches. Nothing else here depends on the shape.
  * **Assumes:** every `openRecords` call in one recovery asks the same question. True because the
- * vault is one record set behind one gate, and because both shipped adapters ignore `params.chain`
- * and key only on `seal` and `records`. An adapter that varied its answer by chain would be served
+ * vault is one record set behind one gate, and because every adapter this app wires — the quorum,
+ * zkEmail, and the fused zkEmail + zkPassport one — ignores `params.chain` and keys only on `seal`
+ * and `records`. An adapter that varied its answer by chain would be served
  * the first chain's plaintexts for all of them — so `assertRecoveredKeyMatches` runs per chain, and
  * would catch it.
  */

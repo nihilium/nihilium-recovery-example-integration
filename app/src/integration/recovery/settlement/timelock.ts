@@ -198,11 +198,19 @@ export function nowSeconds(): number {
  * protect time and cannot be changed without re-sealing, so each option should be one a user means.
  * Five minutes is the operator's demo default, kept so a full recovery can be watched end to end.
  */
-export const TIMELOCK_CHOICES: readonly { seconds: number; label: string }[] = [
-    { seconds: 300, label: "5 minutes" },
-    { seconds: 3_600, label: "1 hour" },
-    { seconds: 86_400, label: "1 day" },
-    { seconds: 604_800, label: "7 days" },
+/**
+ * `short` is the picker's box; `label` is the sentence. The seconds-long options exist for a demo
+ * run, where waiting minutes to see a handover mature is the whole afternoon — both chains refuse
+ * only zero, and nothing about the protocol changes with the number.
+ */
+export const TIMELOCK_CHOICES: readonly { seconds: number; label: string; short: string }[] = [
+    { seconds: 5, label: "5 seconds", short: "5s" },
+    { seconds: 30, label: "30 seconds", short: "30s" },
+    { seconds: 300, label: "5 minutes", short: "5m" },
+    { seconds: 1_800, label: "30 minutes", short: "30m" },
+    { seconds: 3_600, label: "1 hour", short: "1h" },
+    { seconds: 86_400, label: "1 day", short: "1d" },
+    { seconds: 604_800, label: "7 days", short: "7d" },
 ];
 
 export const DEFAULT_TIMELOCK_SECONDS = 300;

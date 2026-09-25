@@ -11,6 +11,12 @@
  *   an HKDF input that the envelope does not carry, so a recovery without it derives the wrong key
  *   in silence.
  *
+ * **Records are not in it.** They live on the record host (`recordHost.ts`), keyed by record id,
+ * and so does each chain's context. That is what lets a file downloaded once keep working while the
+ * vault grows: every chain added after the download is on the host, and a recovery pulls it from
+ * there. The `chains` here are only what was known on download day — enough to check those chains
+ * before a ceremony even with the host down.
+ *
  * **To replace:** nothing, to keep this shape. A wallet that already backs up metadata may ship the
  * seal alone and re-derive the context from its own records — and a wallet that does neither has a
  * user who cannot recover.
@@ -23,10 +29,13 @@ import type { VaultChainRecord, VaultRecord } from "./vaultRecords.js";
 
 /** The original: seal plus context, no records. Still read, never written. */
 export const SEAL_FILE_FORMAT_V1 = "nihilium-demo-seal-file-v1";
-export const SEAL_FILE_FORMAT = "nihilium-demo-seal-file-v2";
+/** Seal, context and a copy of the records as they were on download. Still read, never written. */
+export const SEAL_FILE_FORMAT_V2 = "nihilium-demo-seal-file-v2";
+/** Seal, context and where the records live. What this app writes. */
+export const SEAL_FILE_FORMAT = "nihilium-demo-seal-file-v3";
 
 export interface SealFile {
-    format: typeof SEAL_FILE_FORMAT | typeof SEAL_FILE_FORMAT_V1;
+    format: typeof SEAL_FILE_FORMAT | typeof SEAL_FILE_FORMAT_V2 | typeof SEAL_FILE_FORMAT_V1;
     exportedAt: number;
     vaultId: string;
     recordId: string;
@@ -37,7 +46,13 @@ export interface SealFile {
     gate: GateRecord;
     chains: VaultChainRecord[];
     /**
-     * The encrypted records — **v2 only**, and the whole reason v2 exists.
+     * Where the records and chain contexts live, as base URLs — **v3**. The instructions half of the
+     * file: without it a fresh device would not know where to look.
+     */
+    recordHosts?: readonly string[];
+    /**
+     * The encrypted records — **v2 only**. Read on import, never written: a copy frozen on download
+     * day is exactly what went stale when a chain was added later.
      *
      * v1 carried the seal and the context and nothing else, which meant an imported file only
      * opened a vault in a browser that already held its records: the browser that did not need the
@@ -55,11 +70,7 @@ export interface SealFile {
     entries?: readonly SealedDataEntry[];
 }
 
-export function toSealFile(
-    vault: VaultRecord,
-    seal: SealBlob,
-    entries: readonly SealedDataEntry[] = [],
-): SealFile {
+export function toSealFile(vault: VaultRecord, seal: SealBlob): SealFile {
     return {
         format: SEAL_FILE_FORMAT,
         exportedAt: Date.now(),
@@ -69,17 +80,17 @@ export function toSealFile(
         publicComponent: vault.publicComponent,
         gate: vault.gate,
         chains: vault.chains,
-        entries,
+        recordHosts: vault.recordHosts ?? [],
     };
 }
 
-/** What a v1 file cannot do, in one sentence, for a UI to render as a caution. */
+/** What a file cannot do on its own, in one sentence, for a UI to render as a caution. */
 export function sealFileLimitation(file: SealFile): string | null {
-    if (file.format === SEAL_FILE_FORMAT && (file.entries?.length ?? 0) > 0) return null;
+    if (file.format === SEAL_FILE_FORMAT && (file.recordHosts?.length ?? 0) > 0) return null;
+    if (file.format === SEAL_FILE_FORMAT_V2 && (file.entries?.length ?? 0) > 0) return null;
     return (
-        "This file carries the seal but no encrypted records, so it can only open the vault on a " +
-        "device that already holds them. Records are inert without the seal — copy them from the " +
-        "browser that sealed this vault, or re-export the seal file from there."
+        "This file carries the seal but no encrypted records and names no record host, so it can " +
+        "only open the vault on a device that already holds them, or through this app's own host."
     );
 }
 
@@ -95,7 +106,11 @@ export function parseSealFile(text: string): SealFile {
         throw new SealFileError("That file is not JSON, so it is not a seal file this app wrote.");
     }
     const file = parsed as Partial<SealFile>;
-    if (file.format !== SEAL_FILE_FORMAT && file.format !== SEAL_FILE_FORMAT_V1) {
+    if (
+        file.format !== SEAL_FILE_FORMAT &&
+        file.format !== SEAL_FILE_FORMAT_V2 &&
+        file.format !== SEAL_FILE_FORMAT_V1
+    ) {
         throw new SealFileError(
             `Expected a ${SEAL_FILE_FORMAT} file; got "${String(file.format)}". A seal from a live ` +
                 "ceremony and one from a simulated run are not interchangeable.",
