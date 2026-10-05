@@ -17,6 +17,7 @@
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import { toSolanaAddress } from "@nihilium/recovery-key-solana";
 import { deriveEd25519, deriveSecp256k1 } from "@nihilium-demo/keys";
+import { ARBITRUM_SEPOLIA_ID } from "../integration/chains/arbitrumSepolia.js";
 import { seedFromMnemonic } from "../integration/keys/mnemonic.js";
 import { EVM_RECOVERY_TARGET_PATH, SOLANA_PATH } from "../integration/keys/paths.js";
 
@@ -42,7 +43,8 @@ function hex(bytes: Uint8Array): string {
  * Every chain's destination for one seed.
  *
  * EVM uses the `1'` account branch rather than `0'`, so the key control lands on is not the key the
- * account being recovered was built from. On Solana the wallet's own path is used, because a Solana
+ * account being recovered was built from. Arbitrum uses the same key as Sepolia: it is a plain EOA on
+ * both, and one destination seed answering on both chains is the point. On Solana the wallet's own path is used, because a Solana
  * recovery rotates the vault to a key you hold and the vault is a separate account from that key.
  */
 export function destinationsFor(mnemonic: string): readonly Destination[] {
@@ -61,6 +63,12 @@ export function destinationsFor(mnemonic: string): readonly Destination[] {
             address: toSolanaAddress(solana.publicKey),
             derivationPath: SOLANA_PATH,
             exportPrivateKeyHex_DEMO_ONLY: () => hex(solana.privateKey),
+        },
+        {
+            chainId: ARBITRUM_SEPOLIA_ID,
+            address: toEvmAddress(evm.publicKey),
+            derivationPath: EVM_RECOVERY_TARGET_PATH,
+            exportPrivateKeyHex_DEMO_ONLY: () => hex(evm.privateKey),
         },
     ];
 }

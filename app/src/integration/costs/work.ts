@@ -37,8 +37,10 @@ export interface WorkStep {
     basis: Basis;
     /** Where the number came from: a transaction hash, or the reasoning behind an assumption. */
     note: string;
-    /** EVM only: gas units, priced at the mainnet gas price. */
+    /** EVM only: gas units, priced at the gas price of `network`. */
     evmGas?: bigint;
+    /** Which EVM network's gas price applies. Ethereum mainnet when absent. */
+    network?: "ethereum" | "arbitrum";
     /** Solana only: the fee in lamports, measured rather than derived — see `SOLANA_FEE_NOTE`. */
     lamports?: bigint;
     /** Solana only: rent-exemption. A deposit that comes back when the account closes, not a fee. */
@@ -58,7 +60,8 @@ export const SOLANA_FEE_NOTE = "base fee only — priority fees are excluded, an
 
 export interface WorkContext {
     /**
-     * Whether the EVM smart account already exists on chain.
+     * Whether the EVM smart account already exists on chain. On Arbitrum: whether the EOA is
+     * already delegated, which is the same fact — the account's code is in place.
      *
      * Worth a factor of three: a Safe's **first** UserOp runs the whole launchpad deployment out of
      * the same gas — proxy, module setup, singleton swap — which is why `chains/evm.ts` reserves
@@ -79,6 +82,7 @@ export function workFor(
 ): WorkStep[] | null {
     if (chainId === "evm-sepolia") return evmWork(operation, ctx);
     if (chainId === "solana-devnet") return solanaWork(operation, ctx);
+    if (chainId === "arbitrum-sepolia") return arbitrumWork(operation, ctx);
     // Zcash and anything else this build does not settle. `null` is not zero: the row still renders,
     // saying there is no transaction, because a chain quietly missing from a total is a total that
     // is wrong without looking wrong.
@@ -193,6 +197,70 @@ function solanaWork(operation: CostOperation, ctx: WorkContext): WorkStep[] {
                     lamports: 10_000n,
                     basis: "assumed",
                     note: "no sample: two signers, no precompile",
+                },
+            ];
+    }
+}
+
+/**
+ * Arbitrum Sepolia, through the 7702 account.
+ *
+ * The gas figures are **execution gas from a local anvil run** of the real modules, not Arbitrum
+ * receipts, so they stay `assumed`: Arbitrum adds an L1 data charge on top, folded into its own
+ * `gasUsed`. They are priced at Arbitrum One's gas price rather than mainnet's (see
+ * `MainnetPrices.arbitrumGasPriceWei`), which is the difference that matters: the same gas on L1
+ * costs about a hundred times more.
+ */
+function arbitrumWork(operation: CostOperation, ctx: WorkContext): WorkStep[] {
+    const arbitrum = { network: "arbitrum" as const, basis: "assumed" as const };
+    const local = "execution gas on a local anvil run; Arbitrum adds its L1 data fee";
+    switch (operation) {
+        case "protect": {
+            const steps: WorkStep[] = [];
+            if (!ctx.accountDeployed) {
+                steps.push({
+                    ...arbitrum,
+                    label: "delegate (7702 authorization)",
+                    payer: "you",
+                    evmGas: 38_782n,
+                    note: local,
+                });
+            }
+            steps.push({
+                ...arbitrum,
+                // A rotation rewrites slots that already exist, which is most of the difference.
+                label: ctx.replacing ? "register (rotation)" : "register",
+                payer: "you",
+                evmGas: ctx.replacing ? 76_295n : 272_485n,
+                note: local,
+            });
+            return steps;
+        }
+        case "recover":
+            return [
+                {
+                    ...arbitrum,
+                    label: "initiateRecovery",
+                    payer: "the relayer",
+                    evmGas: 105_701n,
+                    note: local,
+                },
+                {
+                    ...arbitrum,
+                    label: "executeRecovery",
+                    payer: "the relayer",
+                    evmGas: 87_434n,
+                    note: local,
+                },
+            ];
+        case "move-funds":
+            return [
+                {
+                    ...arbitrum,
+                    label: "execute (sweep, as the recovered owner)",
+                    payer: "the relayer",
+                    evmGas: 93_014n,
+                    note: `${local}; the destination was a fresh account`,
                 },
             ];
     }

@@ -107,8 +107,23 @@ const REPORTS: readonly { file: string; phrase: string; why: string }[] = [
     },
     {
         file: "src/ui/RecoveryCard.tsx",
-        phrase: "<WatchBadge watching={watching} />",
+        phrase: "<WatchBadge view={watch.view} />",
         why: "the watchtower's answer, whose resting state is “nothing is watching”",
+    },
+    {
+        file: "src/ui/HealthBadge.tsx",
+        phrase: 'unknown: "Watch status unknown"',
+        why: "a broken watchtower is not a quiet one: `unknown` has its own label, never “Watched”",
+    },
+    {
+        file: "src/ui/RecoveryCard.tsx",
+        phrase: "Someone is opening this vault. Nothing is on-chain yet",
+        why: "the off-chain alarm, which fires during the ceremony and before any chain can be aborted",
+    },
+    {
+        file: "src/ui/RecoveryCard.tsx",
+        phrase: "Not watched on-chain:",
+        why: "a chain with no probe is named, not silently dropped from the watch",
     },
     {
         file: "src/ui/DemoBanner.tsx",

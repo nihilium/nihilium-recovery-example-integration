@@ -55,6 +55,14 @@ export const ROLE_CHAINS: Record<string, RoleChainScheme> = {
         path: (index) => `m/44'/60'/1'/0/${index}`,
         addressOf: toEvmAddress,
     },
+    // The same path as Sepolia, so every role has the same address on both EVM chains. That is the
+    // premise of this file taken literally: a role is one party, with a key on each chain it acts on.
+    "eip155:421614": {
+        namespace: "eip155:421614",
+        curve: "secp256k1",
+        path: (index) => `m/44'/60'/1'/0/${index}`,
+        addressOf: toEvmAddress,
+    },
     [SOLANA_NAMESPACE.devnet]: {
         // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
         // name — and this value is a KDF input, so a wrong one is not a bug that gets fixed later.

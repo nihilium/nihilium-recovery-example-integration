@@ -22,6 +22,8 @@ export interface DemoEnv {
     moduleAttester: `0x${string}`;
     /** Devnet RPC. Queried for real balances — this chain has no simulated ones. */
     solanaRpcUrl: string;
+    /** Arbitrum **Sepolia**, the testnet the 7702-protected EOA lives on. Not the price feed below. */
+    arbitrumSepoliaRpcUrl: string;
     /**
      * Ethereum **mainnet**, and it is read for prices only — never written to, never an account.
      *
@@ -66,6 +68,8 @@ export function readEnv(): DemoEnv {
         bundlerUrl: env.VITE_BUNDLER_URL ?? "https://public.pimlico.io/v2/11155111/rpc",
         moduleAttester: (env.VITE_MODULE_ATTESTER ?? "0x4490f5D9f1cf47b2FBa68158c130aAE8107274a9") as `0x${string}`,
         solanaRpcUrl: env.VITE_SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
+        arbitrumSepoliaRpcUrl:
+            env.VITE_ARBITRUM_SEPOLIA_RPC_URL ?? "https://sepolia-rollup.arbitrum.io/rpc",
         mainnetRpcUrl: env.VITE_MAINNET_RPC_URL ?? "https://ethereum-rpc.publicnode.com",
         arbitrumRpcUrl: env.VITE_ARBITRUM_RPC_URL ?? "https://arbitrum-one-rpc.publicnode.com",
         // Matched by `server/.env`; both sides must agree or appends and registrations are refused.

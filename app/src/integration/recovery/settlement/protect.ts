@@ -10,14 +10,14 @@
  * protecting it rather than by a separate button pressed first: `addChain()` is free, local and
  * instant, and making it a prerequisite step made the free half read as a cost.
  *
- * **The two chains do genuinely different things**, and the difference is not cosmetic. On EVM the
+ * **The chains do genuinely different things**, and the difference is not cosmetic. On Sepolia the
  * account installs a module and the recovery key is named in its init data, so the key can be
- * derived beforehand. On Solana `register` must be **signed by the incoming recovery key**, and the
- * digest it signs binds a `config_nonce` that is not knowable until the vault is read — so there,
- * sealing the chain into the vault and registering it are necessarily one operation, and the root
- * is minted, used once and wiped inside it.
+ * derived beforehand. On Solana and on Arbitrum (7702) `register` must be **signed by the incoming
+ * recovery key**, and the digest it signs binds a config nonce that is not knowable until the account
+ * is read — so there, sealing the chain into the vault and registering it are necessarily one
+ * operation, and the root is minted, used once and wiped inside it.
  *
- * **To replace:** `SettlementEnv`, the two chain-id checks in `supportsSettlement`, and the
+ * **To replace:** `SettlementEnv`, the chain-id checks in `supportsSettlement`, and the
  * `fetch` calls to this demo's server. The veto authorities are the *operator's* keys and have to
  * come from wherever your operator keeps them; only `abortAuthority` is decided here, and it is the
  * wallet's own key.
@@ -29,8 +29,8 @@ import { createPublicClient, http, type Address, type Hex, type PublicClient } f
 // noble's, not viem's: the vault records these keys with `bytesToHex`, which writes no `0x`, and
 // viem's decoder demands one.
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { sepolia } from "viem/chains";
-import { recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
+import { arbitrumSepolia, sepolia } from "viem/chains";
+import { eip7702AccountAddress, recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
 import { generateRRS, type VetoState } from "@nihilium/recovery-core";
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import { toSolanaAddress } from "@nihilium/recovery-key-solana";
@@ -54,6 +54,16 @@ import { createVault, registerGuardian, registrationDigestFor } from "./solana/v
 import { readAttemptClock, readVaultState } from "./solana/relay.js";
 import { loadFeePayer } from "./solana/submit.js";
 import type { AttemptClock } from "./timelock.js";
+import { ARBITRUM_SEPOLIA_CHAIN_ID, ARBITRUM_SEPOLIA_ID } from "../../chains/arbitrumSepolia.js";
+import {
+    createEip7702Reader,
+    readAttemptClock as read7702AttemptClock,
+} from "./eip7702/reads.js";
+import {
+    isProtectedByVault as isProtectedBy7702Vault,
+    preflightProtect,
+} from "./eip7702/preflight.js";
+import { openEip7702Session } from "./eip7702/register.js";
 
 const EVM_CHAIN_ID = "evm-sepolia";
 const SOLANA_CHAIN_ID = "solana-devnet";
@@ -66,7 +76,7 @@ const SOLANA_CHAIN_ID = "solana-devnet";
  * come from eventually; until it does, a lie here is better than a lie there.
  */
 export function supportsSettlement(chainId: string): boolean {
-    return chainId === EVM_CHAIN_ID || chainId === SOLANA_CHAIN_ID;
+    return chainId === EVM_CHAIN_ID || chainId === SOLANA_CHAIN_ID || chainId === ARBITRUM_SEPOLIA_ID;
 }
 
 /** Exactly the configuration these two chains need, so the demo's own env can satisfy it. */
@@ -77,6 +87,7 @@ export interface SettlementEnv {
     bundlerUrl: string;
     moduleAttester: `0x${string}`;
     solanaRpcUrl: string;
+    arbitrumSepoliaRpcUrl: string;
 }
 
 export interface ProtectDeps {
@@ -118,6 +129,13 @@ export interface OnChainState {
      */
     clock: AttemptClock | null;
     intentHash: Hex | null;
+    /**
+     * Completed recoveries on this account, as the chain counts them. `null` where nothing is
+     * registered. A watch target records it, so any advance trips the alarm after the fact.
+     */
+    epoch: number | null;
+    /** Solana only: bumped by every registration, so a watch can tell a rotation happened. */
+    configNonce: number | null;
 }
 
 /** What "never protected" looks like where the protected account must be created first. */
@@ -128,6 +146,8 @@ const NOTHING: OnChainState = {
     attempt: null,
     clock: null,
     intentHash: null,
+    epoch: null,
+    configNonce: null,
 };
 
 export interface ReadProtectionParams {
@@ -156,7 +176,47 @@ export async function readProtection(
 ): Promise<OnChainState | null> {
     if (params.chain.id === SOLANA_CHAIN_ID) return readSolana(deps, params);
     if (params.chain.id === EVM_CHAIN_ID) return readEvm(deps, params);
+    if (params.chain.id === ARBITRUM_SEPOLIA_ID) return read7702(deps, params);
     return null;
+}
+
+/** The 7702 EOA's own code and storage. Undelegated reads as never protected, not as unreadable. */
+async function read7702(deps: ProtectDeps, params: ReadProtectionParams): Promise<OnChainState> {
+    const chainRecord = params.vault?.chains.find((row) => row.chainId === params.chain.id) ?? null;
+    const client = createPublicClient({
+        chain: arbitrumSepolia,
+        transport: http(deps.env.arbitrumSepoliaRpcUrl),
+    }) as PublicClient;
+    const reader = createEip7702Reader(
+        client,
+        params.account.accountId as Address,
+        eip7702AccountAddress(ARBITRUM_SEPOLIA_CHAIN_ID) as Address,
+        params.chain.namespace,
+    );
+
+    // Delegated to anything else, including a superseded version of this contract, is not
+    // protected by this build. Protecting refuses it with the reason; reading just says no.
+    if ((await reader.delegation()).kind !== "ours") return NOTHING;
+    if (!(await reader.isRegistered())) return NOTHING;
+
+    const [config, attempt, clock] = await Promise.all([
+        reader.configOf(),
+        reader.attemptOf(),
+        read7702AttemptClock(reader),
+    ]);
+    return {
+        installed: true,
+        recoveryOwner: config.recoveryOwner,
+        matchesVault:
+            chainRecord === null
+                ? false
+                : await isProtectedBy7702Vault(reader, chainRecord.recoveryPubKeyHex),
+        attempt: clock.projected,
+        clock: clock.clock,
+        intentHash: attempt.state === null ? null : attempt.intentHash,
+        epoch: Number(config.epoch),
+        configNonce: Number(config.configNonce),
+    };
 }
 
 async function readSolana(
@@ -212,6 +272,8 @@ async function readSolana(
         // The vault stores `intent_digest`, not the intent, and the digest is not what EVM's
         // `intentHash` is. Left null rather than filled with a lookalike.
         intentHash: null,
+        epoch: chainState.registered ? chainState.epoch : null,
+        configNonce: chainState.registered ? chainState.configNonce : null,
     };
 }
 
@@ -246,6 +308,8 @@ async function readEvm(
         attempt: attempt?.projected ?? null,
         clock: attempt?.clock ?? null,
         intentHash: intentHash ?? null,
+        epoch: config === null ? null : Number(config.epoch),
+        configNonce: null,
     };
 }
 
@@ -286,6 +350,7 @@ export async function protectChain(
 ): Promise<ProtectResult> {
     if (params.chain.id === SOLANA_CHAIN_ID) return protectOnSolana(deps, params);
     if (params.chain.id === EVM_CHAIN_ID) return protectOnEvm(deps, params);
+    if (params.chain.id === ARBITRUM_SEPOLIA_ID) return protectOn7702(deps, params);
     throw new Error(`This build cannot register a recovery key on ${params.chain.label}.`);
 }
 
@@ -517,6 +582,110 @@ async function protectOnEvm(deps: ProtectDeps, params: ProtectParams): Promise<P
     );
 
     return { txHash: result.transactionHash };
+}
+
+/**
+ * Protect an Arbitrum EOA: delegate it to the 7702 recovery account, then register this vault's key.
+ *
+ * Shaped like Solana rather than like Sepolia, because the contract's `register` needs a signature
+ * from the incoming recovery key over a digest that binds `configNonce`. So the root is minted here,
+ * the chain is (re-)keyed into the vault with it, one digest is signed, and the root is wiped — all
+ * inside this call. The veto keys come from the operator, and abort is the EOA itself, as everywhere
+ * else in this demo.
+ */
+async function protectOn7702(deps: ProtectDeps, params: ProtectParams): Promise<ProtectResult> {
+    const { chain, account, vault } = params;
+    const note = params.onProgress ?? (() => undefined);
+    const method = params.methods?.get(vault.gate.methodId) ?? null;
+    if (method === null) {
+        throw new Error(
+            `Vault sealed with "${vault.gate.methodId}", which is not configured in this app.`,
+        );
+    }
+
+    const response = await fetch(`${deps.env.serverUrl}/api/roles/relayer/arbitrum/config`);
+    if (!response.ok) {
+        throw new Error(
+            "Arbitrum relayer not reachable. Run `npm run dev:server` with ARBITRUM_SEPOLIA_RPC_URL set.",
+        );
+    }
+    const config = (await response.json()) as Eip7702RelayerConfig;
+
+    const nested = demoVetoConfig({
+        namespace: chain.namespace,
+        pauseAuthority: config.pauseAuthority,
+        // The EOA itself. `abort()` checks the sender, and the EOA can call its own address.
+        abortAuthority: account.signer.address,
+        resumeMembers: config.resumeMembers,
+        resumeThreshold: config.resumeThreshold,
+        timelockSeconds: vault.timelockSeconds ?? config.timelockSeconds,
+        pauseCeilingSeconds: config.pauseCeilingSeconds,
+    });
+    validateDemoVetoConfig(nested);
+    assertResumeQuorumPortable(nested);
+    const veto = toSolidityVetoConfig(nested);
+
+    const session = openEip7702Session({
+        rpcUrl: deps.env.arbitrumSepoliaRpcUrl,
+        implementation: eip7702AccountAddress(ARBITRUM_SEPOLIA_CHAIN_ID) as Address,
+        namespace: chain.namespace,
+        ownerPrivateKeyHex: account.signer.exportPrivateKeyHex_DEMO_ONLY() as Hex,
+    });
+
+    // Before anything is minted: a refusal after re-keying would leave the vault holding a key the
+    // chain never heard of, and the badge reading `stale` for no reason.
+    const refusal = (await preflightProtect(session.reader)).find((problem) => problem.blocking);
+    if (refusal !== undefined) throw new Error(refusal.message);
+
+    const rrs = generateRRS();
+    let registerTx: Hex;
+    try {
+        const updated = await addChainToVault(deps.stores, {
+            method,
+            vault,
+            chain,
+            account,
+            recoveryKey: { kind: "rrs", rrs },
+            // A chain already in the vault holds a key whose root nobody kept, so it can never sign.
+            rekey: vault.chains.some((row) => row.chainId === chain.id),
+            onProgress: note,
+        });
+        const record = updated.chains.find((row) => row.chainId === chain.id)!;
+        const recoveryOwner = recoveryOwnerAddress(record.recoveryPubKeyHex);
+        note(`recoveryOwner ${recoveryOwner}`);
+
+        const result = await session.protect({
+            recoveryOwner,
+            veto,
+            async signAsRecoveryKey(digest) {
+                const priv = chain.keyAdapter.derivePrivateKey(rrs, chainContextOf(updated, record));
+                try {
+                    return (await chain.keyAdapter.sign(priv, digest)).bytes;
+                } finally {
+                    priv.fill(0);
+                }
+            },
+            onProgress: note,
+        });
+        registerTx = result.registerTx;
+    } finally {
+        // The root does not outlive the signature it was minted for.
+        rrs.fill(0);
+    }
+
+    await params.onVaultChanged?.();
+    return { txHash: registerTx };
+}
+
+/** What the Arbitrum relayer publishes. The same parties as on Sepolia, on this chain. */
+interface Eip7702RelayerConfig {
+    implementation: Address;
+    relayer: Address;
+    pauseAuthority: Address;
+    resumeMembers: Address[];
+    resumeThreshold: number;
+    timelockSeconds: number;
+    pauseCeilingSeconds: number;
 }
 
 /** What the server's relayer role publishes: the operator's veto keys, not the account's. */

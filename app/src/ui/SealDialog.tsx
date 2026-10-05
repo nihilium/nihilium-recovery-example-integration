@@ -37,14 +37,9 @@ import { displayRecordId } from "../integration/recovery/vaultRecords.js";
 import { AddressChip } from "./AddressChip.js";
 
 /**
- * Prefilled so the demo runs in one click, at *different domains* on purpose — three guardians at
- * one provider is a 2-of-3 whose failure domain is one company, and identical domains would make
- * every member's seal summary read the same, hiding that the summary is per member.
- *
- * Every domain here is one the live DKIM registry answers `eligible` for today. That is not
- * cosmetic: the check below is real, and a default set that blocked its own seal button would read
- * as a broken demo rather than as the lesson. Type `@fastmail.com` into any of them to see the
- * blocking path, which is one keystroke away on purpose.
+ * Placeholders, not values, at *different domains* on purpose — three guardians at one provider is a
+ * 2-of-3 whose failure domain is one company. They are hints only: a prefilled address is a stranger
+ * the demo would seal a vault to if the user clicked through without reading.
  */
 const SUGGESTED_EMAILS = [
     "alice@gmail.com",
@@ -56,18 +51,15 @@ const SUGGESTED_EMAILS = [
 
 type Draft = Readonly<Record<string, string>>;
 
-/**
- * Prefills, by subject kind. Only the email kind gets any: a guardian's address can be anyone's for
- * a demo, but a passport kind commits to a real document, and a made-up name would buy a seal that
- * no passport on earth can open.
- */
-function suggestedDraft(kindId: string, index: number): Draft {
+/** A row's hint for one field: a distinct guardian address per row, else the kind's own. */
+function placeholderFor(kindId: string, field: SubjectField, index: number): string {
     const email = SUGGESTED_EMAILS[index];
-    return kindId === EMAIL_KIND_ID && email !== undefined ? { email } : {};
+    if (kindId === EMAIL_KIND_ID && field.kind === "email" && email !== undefined) return email;
+    return field.placeholder ?? "";
 }
 
-function draftsFor(kindId: string, count: number, prev: readonly Draft[] = []): Draft[] {
-    return Array.from({ length: count }, (_, i) => prev[i] ?? suggestedDraft(kindId, i));
+function draftsFor(count: number, prev: readonly Draft[] = []): Draft[] {
+    return Array.from({ length: count }, (_, i) => prev[i] ?? {});
 }
 
 function recommendedPreset(method: RecoveryMethod): GatePreset {
@@ -87,6 +79,7 @@ export function SealDialog({
     flow,
     methods,
     replacing: replacingNow,
+    onProtectAll,
 }: {
     open: boolean;
     onClose: () => void;
@@ -94,6 +87,11 @@ export function SealDialog({
     methods: MethodRegistry;
     /** The vault this ceremony replaces, or null for a first seal. */
     replacing: VaultRecord | null;
+    /**
+     * Straight on to Protect all, once the seal file is saved. Sealing protects nothing until the
+     * chains hold the key, so the next step is offered here rather than behind a close and a reopen.
+     */
+    onProtectAll?: () => void;
 }) {
     // Frozen at mount. A successful first seal makes a vault exist, so the live prop would flip to
     // "you are replacing something" on the very step that says the seal succeeded.
@@ -120,8 +118,11 @@ export function SealDialog({
         replacingNow?.timelockSeconds ?? DEFAULT_TIMELOCK_SECONDS,
     );
     const [drafts, setDrafts] = useState<Draft[]>(() =>
-        draftsFor(kind.id, recommended.subjectCount),
+        draftsFor(recommended.subjectCount),
     );
+    // Field errors wait for the first "Review": an empty form that opens in red reads as a mistake
+    // the user has not had the chance to make yet.
+    const [attempted, setAttempted] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
     /**
      * Per row, the exact lines the user confirmed against their document. Keyed by the lines rather
@@ -172,15 +173,16 @@ export function SealDialog({
         const nextPreset = recommendedPreset(next);
         setOfferId(id);
         setPreset(nextPreset);
-        setDrafts(draftsFor(next.kinds[0]!.id, nextPreset.subjectCount));
+        setDrafts(draftsFor(nextPreset.subjectCount));
         setConfirmed({});
+        setAttempted(false);
     }
 
     function choosePreset(next: GatePreset): void {
         setPreset(next);
         // Grow or shrink around what is typed: position is the Shamir index, so rebuilding the array
         // would silently renumber guardians.
-        setDrafts((prev) => draftsFor(kind.id, next.subjectCount, prev));
+        setDrafts((prev) => draftsFor(next.subjectCount, prev));
     }
 
     function start(): void {
@@ -207,7 +209,7 @@ export function SealDialog({
         >
             {replacing !== null && step !== "done" && (
                 <p className="muted">
-                    Buys new seals. The current gate stays active until this finishes.
+                    Paid again. Your current guardians stay in place until this finishes.
                 </p>
             )}
 
@@ -310,7 +312,7 @@ export function SealDialog({
                                                 type={inputType(field)}
                                                 value={draft[field.key] ?? ""}
                                                 ariaLabel={`${single ? kind.noun.one : field.label} ${index + 1}`}
-                                                placeholder={field.placeholder ?? ""}
+                                                placeholder={placeholderFor(kind.id, field, index)}
                                                 onChange={(event) =>
                                                     setDrafts((prev) =>
                                                         prev.map((entry, i) =>
@@ -346,7 +348,7 @@ export function SealDialog({
                         );
                     })}
 
-                    {[...fieldIssues, ...issues].map((issue, i) => (
+                    {attempted && [...fieldIssues, ...issues].map((issue, i) => (
                         <StatusMessage key={i} tone="error">
                             {issue.message}
                         </StatusMessage>
@@ -441,8 +443,12 @@ export function SealDialog({
             return (
                 <DialogActions back={{ label: "Back", onClick: () => setStep("gate") }}>
                     <Button
-                        onClick={() => setStep("confirm")}
-                        disabled={!named || domains.blocking || !verified}
+                        onClick={() => {
+                            setAttempted(true);
+                            if (named) setStep("confirm");
+                        }}
+                        // Pressable while the form is wrong, so pressing it can say what is wrong.
+                        disabled={domains.blocking || (named && !verified)}
                     >
                         {domains.blocking
                             ? "Waiting on the domain check"
@@ -467,18 +473,26 @@ export function SealDialog({
             );
         }
         return (
-            // One download action. Before it is pressed, it is the primary; after, "Done" is, and the
-            // download stays available once more in case the first one went nowhere.
+            // One download action. Before it is pressed, it is the primary; after, protecting the
+            // chains is, and the download stays available once more in case the first one went
+            // nowhere.
             <DialogActions>
                 <Button variant="ghost" onClick={downloaded ? save : onClose}>
                     {downloaded ? "Download again" : "Close"}
                 </Button>
-                {downloaded ? (
-                    <Button onClick={onClose}>Done</Button>
-                ) : (
+                {!downloaded ? (
                     <Button onClick={save} disabled={flow.state.sealFile === null}>
                         Download the seal file
                     </Button>
+                ) : onProtectAll === undefined ? (
+                    <Button onClick={onClose}>Done</Button>
+                ) : (
+                    <>
+                        <Button variant="ghost" onClick={onClose}>
+                            Done
+                        </Button>
+                        <Button onClick={onProtectAll}>Protect all chains</Button>
+                    </>
                 )}
             </DialogActions>
         );

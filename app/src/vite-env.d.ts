@@ -9,6 +9,9 @@ interface ImportMetaEnv {
     readonly VITE_SEPOLIA_RPC_URL?: string;
     readonly VITE_BUNDLER_URL?: string;
     readonly VITE_MODULE_ATTESTER?: string;
+    readonly VITE_SOLANA_RPC_URL?: string;
+    /** Arbitrum Sepolia, where the 7702-protected EOA lives. */
+    readonly VITE_ARBITRUM_SEPOLIA_RPC_URL?: string;
     /** Overrides the plaintext demo mnemonic in `src/demo/mnemonic.ts`. */
     readonly VITE_RECORD_APPEND_SECRET?: string;
     readonly VITE_WATCH_REGISTER_SECRET?: string;

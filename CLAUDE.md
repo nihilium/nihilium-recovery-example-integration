@@ -7,11 +7,12 @@ and one file worth copying.
 It is not a wallet. It holds one plaintext 12-word seed phrase, in the open, on purpose — the point
 is to lose it convincingly, not to guard it.
 
-> **Status:** the wallet, the role identities, on-chain settlement (EVM and Solana, via the relayer
-> and veto roles), the record host, and two recovery methods exist: an email quorum, and the owner's
-> own email and passport fused into one ceremony — both recovered through the live ceremony. The
-> watchtower and the scenario runner do not. This file states the goal; it is not a log of what
-> exists.
+> **Status:** the wallet, the role identities, on-chain settlement (Sepolia, Arbitrum Sepolia through
+> an EIP-7702 delegation, and Solana, via the relayer and veto roles), the record host, the
+> watchtower (off-chain unsealing plus Sepolia and Solana on-chain; Arbitrum off-chain only), and two
+> recovery methods exist: an email quorum, and the owner's own email and passport fused into one
+> ceremony — both recovered through the live ceremony. The scenario runner does not. This file
+> states the goal; it is not a log of what exists.
 
 ## The two things this repo optimises for
 
@@ -114,8 +115,8 @@ shared credentials are documented in [docs/configuration.md](docs/configuration.
 ## Chains and wallets
 
 One 12-word mnemonic (plaintext, fixed by default so a reload does not reset the demo) derives every
-chain's keys. The top of the page is a wallet switcher: **EVM (Sepolia)**, **Solana**, **Zcash**,
-with room for more.
+chain's keys. The top of the page is a wallet switcher: **EVM (Sepolia)**, **Arbitrum (Sepolia)**,
+**Solana**, **Zcash**, with room for more.
 
 Adding a chain must mean adding one file under `integration/chains/` and one line in the registry.
 Each chain module declares the common surface:
@@ -139,9 +140,10 @@ Three things this multiplicity is here to teach, and each is a scenario:
   own `KeyAdapter` for it — that is the example, not an accident. It also exercises the multi-address
   case that account-model chains hide.
 - **The off-chain half is only half.** Sealing protects nothing until the chain registers the
-  recovery key. Only EVM has a real module (`RecoveryModule`, deployed on Sepolia). Solana and Zcash
-  settlement is **simulated locally by this repo** and must be labelled as simulated everywhere it
-  appears — an unlabelled fake here would teach exactly the wrong lesson.
+  recovery key. Sepolia installs `RecoveryModule` on a Safe; Arbitrum Sepolia delegates a plain EOA
+  to `Eip7702RecoveryAccount` (see [docs/arbitrum-7702.md](docs/arbitrum-7702.md)); Solana registers
+  with the recovery vault program. **Zcash has no settlement at all**, and anything shown for it
+  must be labelled as simulated — an unlabelled fake here would teach exactly the wrong lesson.
 
 ## Scenarios
 
@@ -227,8 +229,8 @@ binding on UI copy, docs and comments:
   be able to see where state lives by reading one component. Server calls go through small typed
   `fetch` helpers, not a data layer.
 - **Dependencies stay boring.** `@nihilium/recovery-*` from npm; a `file:../recovery-sdk/...` link
-  only where a package is not published. Four are not: `recovery-service`, `recovery-watchtower`,
-  `recovery-watchtower-evm`, `recovery-watchtower-nihilium` — plus `@nihilium/recovery-onchain-evm`,
+  only where a package is not published. Five are not: `recovery-service`, `recovery-watchtower`,
+  `recovery-watchtower-evm`, `recovery-watchtower-nihilium`, `recovery-watchtower-solana` — plus `@nihilium/recovery-onchain-evm`,
   which lives in a git submodule. The record host is built on the first of those, so this is not a
   corner case. Adding any other dependency needs a reason a reader of the example would accept.
 - **Do not edit `../recovery-sdk` or `../nihilium-core` from here.** If the SDK needs a change to

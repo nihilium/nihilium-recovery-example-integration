@@ -10,17 +10,23 @@ import express from "express";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, type Address, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
-import { recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
+import { arbitrumSepolia, sepolia } from "viem/chains";
+import { eip7702AccountAddress, recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
 import { recoveryVaultProgramIds } from "@nihilium/recovery-onchain-solana";
 import { printBootBanner } from "./boot.js";
 import { config } from "./config.js";
 import { logError, logInfo } from "./log.js";
 import { createRelayerRouter } from "./roles/relayer/index.js";
 import { createSolanaRelayerRouter } from "./roles/relayer/solana.js";
+import { createEip7702RelayerRouter } from "./roles/relayer/eip7702.js";
 import { createVetoRouter } from "./roles/veto/index.js";
 import { createRecordsRouter } from "./roles/records/index.js";
-import { LocalSealedDataStore } from "@nihilium/recovery-storage-local";
+import { LocalSealedDataStore, LocalWatchStore } from "@nihilium/recovery-storage-local";
+import { EvmRecoveryProbe } from "@nihilium/recovery-watchtower-evm";
+import { NihiliumRevealProbe } from "@nihilium/recovery-watchtower-nihilium";
+import { SolanaRecoveryProbe } from "@nihilium/recovery-watchtower-solana";
+import type { WatchProbe } from "@nihilium/recovery-core";
+import { createWatchtower } from "./roles/watchtower/index.js";
 
 // From the SDK's address book, never a literal: the v1 -> v2 redeploy moved this address, and a
 // hardcoded copy would have kept pointing at the superseded module while looking correct.
@@ -111,6 +117,34 @@ app.use(
     }),
 );
 
+// Holds watches, never keys. Its probes read public chains and Nihilium's public datastream, so
+// watching another chain is a probe and an RPC URL, not a role key. Arbitrum is not here: the SDK's
+// EVM probe reads the module, and the 7702 account's views have a different shape.
+const watchProbes: WatchProbe[] = [
+    new NihiliumRevealProbe(),
+    new EvmRecoveryProbe({ rpcUrls: { [config.namespace]: config.rpcUrl } }),
+    ...(config.solana === null
+        ? []
+        : [new SolanaRecoveryProbe({ rpcUrls: { [config.solana.namespace]: config.solana.rpcUrl } })]),
+];
+const watchtower = createWatchtower({
+    store: new LocalWatchStore({
+        directory: config.watchesDir,
+        domain: "demo-watchtower",
+        // Every cycle, not the store's hourly default. The service marks a watch degraded once its
+        // last *recorded* complete poll is three intervals old, and the store records an unchanged
+        // poll only on its heartbeat — so the default reads every quiet watch as degraded for most
+        // of each hour. See docs/sdk-proposals.md §6.
+        heartbeatSeconds: config.watchtowerPollSeconds,
+    }),
+    probes: watchProbes,
+    registerSecret: config.watchRegisterSecret,
+    pollIntervalSeconds: config.watchtowerPollSeconds,
+    allowForcedPoll: config.allowForcedPoll,
+    log: (message) => logInfo("watchtower", message),
+});
+app.use("/api/watchtower", watchtower.router);
+
 // Mounted only when Solana is configured. An absent route answers 404, which is the honest
 // version of "this chain is not set up" — a stub that returned success would be worse than nothing.
 if (config.solana !== null) {
@@ -154,6 +188,39 @@ if (config.solana !== null) {
     );
 }
 
+// Arbitrum Sepolia, through the 7702 account.
+{
+    const arb = config.arbitrumSepolia;
+    const relayer = privateKeyToAccount(config.roles.relayer.on(arb.namespace).privateKey);
+    app.use(
+        "/api/roles/relayer/arbitrum",
+        createEip7702RelayerRouter({
+            publicClient: createPublicClient({
+                chain: arbitrumSepolia,
+                transport: http(arb.rpcUrl),
+            }) as PublicClient,
+            walletClient: createWalletClient({
+                account: relayer,
+                chain: arbitrumSepolia,
+                transport: http(arb.rpcUrl),
+            }),
+            relayer,
+            // The address book, never a literal: v1.0.0 could not receive ETH and was replaced.
+            implementation: eip7702AccountAddress(arb.chainId) as Address,
+            vetoConfig: {
+                pauseAuthority: config.roles.pause.on(arb.namespace).authority.id as Address,
+                resumeMembers: config.roles.resume.map(
+                    (role) => role.on(arb.namespace).authority.id as Address,
+                ),
+                resumeThreshold: config.resumeThreshold,
+                timelockSeconds: config.timelockSeconds,
+                pauseCeilingSeconds: config.pauseCeilingSeconds,
+            },
+            log: (message) => logInfo("relayer", message),
+        }),
+    );
+}
+
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logError("http", "unhandled error", error);
     res.status(500).json({ error: "Internal error." });
@@ -172,4 +239,6 @@ process.on("uncaughtException", (error) => logError("process", "uncaught excepti
 
 app.listen(config.port, () => {
     void printBootBanner(config, MODULE_ADDRESS);
+    // The loop is the host's, never the package's.
+    watchtower.startPolling();
 });

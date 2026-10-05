@@ -166,7 +166,13 @@ function stepCost(step: WorkStep, prices: MainnetPrices | null): StepCost {
     };
 
     if (step.evmGas !== undefined) {
-        const wei = prices === null ? null : step.evmGas * prices.gasPriceWei;
+        const gasPrice =
+            prices === null
+                ? null
+                : step.network === "arbitrum"
+                  ? prices.arbitrumGasPriceWei
+                  : prices.gasPriceWei;
+        const wei = gasPrice === null ? null : step.evmGas * gasPrice;
         return {
             ...base,
             feeUsdMicros: wei === null ? null : usdOf(wei, WEI_DECIMALS, prices!.ethUsdMicros),

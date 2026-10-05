@@ -36,6 +36,7 @@ import { Button, Card, Heading, StatusMessage } from "./ds.js";
 import { AddressChip } from "./AddressChip.js";
 import { downloadSeal } from "./downloadSeal.js";
 import { StageBadge, WatchBadge } from "./HealthBadge.js";
+import type { WatchtowerState } from "../demo/useWatchtower.js";
 import { stageOf, type RecoveryStage } from "./recoveryHealth.js";
 import { Notice } from "./Notice.js";
 import { SealDialog } from "./SealDialog.js";
@@ -49,7 +50,7 @@ export function RecoveryCard({
     chainLabel,
     onchainAttempt,
     onchainClock,
-    watching,
+    watch,
     coverage,
     onProtectAll,
     onOpenHandover,
@@ -69,8 +70,8 @@ export function RecoveryCard({
     onchainAttempt: VetoState | null | undefined;
     /** The same read's clock, so the badge applies the shared definition of ready. */
     onchainClock: AttemptClock | null | undefined;
-    /** Whether anything watches for a recovery this browser did not start. False everywhere today. */
-    watching: boolean;
+    /** What the watchtower says: whether anything would notice a recovery this browser did not start. */
+    watch: WatchtowerState;
     /**
      * Every chain at once, not the one on screen.
      *
@@ -137,7 +138,7 @@ export function RecoveryCard({
                     vault={vault}
                     gate={gate}
                     stage={stage}
-                    watching={watching}
+                    watch={watch}
                     coverage={coverage}
                     onProtectAll={onProtectAll}
                     holdsSeal={flow.state.seals.some((ref) => ref.vaultId === vault.vaultId)}
@@ -175,6 +176,11 @@ export function RecoveryCard({
                     // old row behind would give this account two vaults and let `vaultFor` pick
                     // whichever came first — so the replacement still discards it.
                     replacing={vault}
+                    // Closes this dialog first: the two are paid, in-flight dialogs and never stack.
+                    onProtectAll={() => {
+                        setSealing(false);
+                        onProtectAll();
+                    }}
                 />
             )}
         </Card>
@@ -191,7 +197,7 @@ function SealedBody({
     vault,
     gate,
     stage,
-    watching,
+    watch,
     coverage,
     onProtectAll,
     holdsSeal,
@@ -209,7 +215,7 @@ function SealedBody({
     vault: VaultRecord;
     gate: GateDescription | null;
     stage: RecoveryStage | null;
-    watching: boolean;
+    watch: WatchtowerState;
     /** Whether the chain honours *this* gate. `stale` means it honours the one before it. */
     /**
      * Every chain at once, not the one on screen.
@@ -240,7 +246,10 @@ function SealedBody({
     /** This operation's lines, and only this one's — see `transcripts.test.ts`. */
     abortLog: readonly string[];
 }) {
-    const abortable = isAbortable(stage);
+    // Also when the watchtower saw an attempt on a chain that is not the one on screen: abort acts on
+    // every chain of the vault, and the on-screen stage only knows its own.
+    const abortable =
+        isAbortable(stage) || (watch.view.state === "alarm" && watch.view.onchain);
     const [downloadError, setDownloadError] = useState<string | null>(null);
     return (
         <details className="disclosure">
@@ -254,7 +263,7 @@ function SealedBody({
                 </span>
                 <span className="disclosure__spacer row">
                     {stage !== null && <StageBadge stage={stage} />}
-                    <WatchBadge watching={watching} />
+                    <WatchBadge view={watch.view} />
                     {/* The one action worth reaching without opening the card. Protecting a funded
                         chain is time-sensitive in a way the rest of the body is not, and it was the
                         only reason left to expand a card whose whole point is that it stays shut.
@@ -286,6 +295,17 @@ function SealedBody({
 
             <div className="stack disclosure__body">
 
+                {watch.view.state === "alarm" && (
+                    <Notice tone="caution">
+                        {watch.view.onchain
+                            ? "A recovery was started on this vault"
+                            : "Someone is opening this vault. Nothing is on-chain yet"}
+                        {watch.view.actBefore !== undefined &&
+                            ` · act before ${new Date(watch.view.actBefore * 1000).toLocaleTimeString()}`}
+                        .
+                    </Notice>
+                )}
+
                 <ul className="reasons">
                     {gate?.slots.map((slot) => (
                         <li key={slot.index}>
@@ -300,7 +320,7 @@ function SealedBody({
                             recovery that wrote it. */}
                         <Notice tone="caution">
                             Vault spent · recovered {new Date(vault.spent.at).toLocaleDateString()}.
-                            Set up a new gate.
+                            Set up recovery again.
                         </Notice>
                         {/* Minting a seed is not moving anything, and this button used to do only
                             that. The recovery it belongs to is already on-chain; what is left is
@@ -395,6 +415,27 @@ function SealedBody({
                     <span className={hostSync?.ok === false ? "verdict verdict--blocking" : "muted"}>
                         Records: {hostSync === undefined ? "checking the record host…" : hostSync.message}
                     </span>
+                    {/* The watchtower's own sentence, and the chains it cannot see on-chain. Never
+                        shortened to "ok": its summary already says what it does and does not know. */}
+                    <span className={watch.view.state === "alarm" ? "verdict verdict--blocking" : "muted"}>
+                        Watch: {watch.view.message}{" "}
+                        {watch.view.state !== "off" && (
+                            <button
+                                type="button"
+                                className="linkish"
+                                onClick={watch.checkNow}
+                                disabled={watch.checking}
+                            >
+                                {watch.checking ? "checking…" : "check now"}
+                            </button>
+                        )}
+                    </span>
+                    {watch.unwatched.length > 0 && (
+                        <span className="muted">
+                            Not watched on-chain:{" "}
+                            {watch.unwatched.map((row) => `${row.label} (${row.reason})`).join(", ")}
+                        </span>
+                    )}
                     {/* Abort sits beside Replace because they are the two things an owner does to
                         a gate they did not ask for: refuse this attempt, or change who can open the
                         next one. Only while something is actually in flight — abort is terminal and
@@ -409,7 +450,7 @@ function SealedBody({
                         </Button>
                     )}
                     <Button variant="ghost" onClick={onReplace}>
-                        {vault.spent === null ? "Replace guardians" : "Set up a new gate"}
+                        {vault.spent === null ? "Replace guardians" : "Set up recovery again"}
                     </Button>
                 </div>
 

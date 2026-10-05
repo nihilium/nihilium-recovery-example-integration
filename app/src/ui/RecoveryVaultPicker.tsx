@@ -156,7 +156,7 @@ function VaultRow({
                 <span className="gate-option__title">
                     {/* The gate's own summary, kept verbatim at seal time so a vault still describes
                         itself when the method that built it is no longer configured. */}
-                    {row.vault.gate.summary ?? "gate unknown"}
+                    {row.vault.gate.summary ?? "unknown"}
                 </span>
                 <span className="gate-option__gate mono">
                     {row.vault.vaultId} · {chains || "no chains"}

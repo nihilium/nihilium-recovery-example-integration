@@ -638,22 +638,6 @@ function OwnerStep({
                     </Button>
                 </div>
             </div>
-
-            {owner !== null && (
-                <dl className="rows">
-                    {vaultChains.map((row) => (
-                        <Fragment key={row.chainId}>
-                            <dt>{row.label}</dt>
-                            <dd className="mono">
-                                {row.destination === null
-                                    ? "no destination in this build"
-                                    : `${row.destination.address} · ${row.destination.derivationPath}`}
-                            </dd>
-                        </Fragment>
-                    ))}
-                </dl>
-            )}
-
         </div>
     );
 }

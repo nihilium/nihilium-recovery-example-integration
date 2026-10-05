@@ -42,6 +42,19 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
         },
     ];
 
+    {
+        const arbClient = createPublicClient({ transport: http(config.arbitrumSepolia.rpcUrl) });
+        chains.push({
+            namespace: config.arbitrumSepolia.namespace,
+            label: "arbitrum-sepolia",
+            format: (b) => `${formatEther(b).padStart(10)} ETH`,
+            // An L2: initiate and execute cost a fraction of what they do on Sepolia.
+            low: LOW_BALANCE_WEI / 10n,
+            balanceOf: (address) => arbClient.getBalance({ address: address as `0x${string}` }),
+            prefix: "/api/roles/*/arbitrum",
+        });
+    }
+
     if (config.solana !== null) {
         const solana = config.solana;
         const connection = new Connection(solana.rpcUrl, "confirmed");
@@ -108,9 +121,11 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
             const routes =
                 chain.prefix === "/api/roles"
                     ? row.routes
-                    : row.label === "relayer"
-                      ? "POST /api/roles/relayer/solana/{initiate,execute,fund,feepayer}"
-                      : "— no route on this chain yet";
+                    : row.label !== "relayer"
+                      ? "— no route on this chain yet"
+                      : chain.prefix === "/api/roles/*/arbitrum"
+                        ? "POST /api/roles/relayer/arbitrum/{initiate,execute,execute-calls}"
+                        : "POST /api/roles/relayer/solana/{initiate,execute,fund,feepayer}";
             console.log(
                 `      ${row.label.padEnd(18)} ${row.key.authority.id.padEnd(44)} ${shown}  ${routes}`,
             );
@@ -130,6 +145,10 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
     console.log(`                       GET|POST /api/records/:id — ciphertext and chain context, never a seal`);
     console.log(`    watchtower         ${config.watchesDir}`);
     console.log(`                       polling every ${config.watchtowerPollSeconds}s — holds no keys`);
+    console.log(
+        `                       POST|GET|DELETE /api/watchtower/watches${config.allowForcedPoll ? "   POST /api/watchtower/poll (demo)" : ""}`,
+    );
+    console.log("                       arbitrum-sepolia is not watched on-chain: no 7702 probe yet");
     console.log("");
 
     const derived = rows.filter((r) => !r.key.supplied);
@@ -151,7 +170,9 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
             faucet:
                 relayer.chain.namespace === config.namespace
                     ? "https://sepoliafaucet.com"
-                    : "solana airdrop 2 <address> --url devnet",
+                    : relayer.chain.namespace === config.arbitrumSepolia.namespace
+                      ? "https://faucet.quicknode.com/arbitrum/sepolia"
+                      : "solana airdrop 2 <address> --url devnet",
         });
     }
     console.log(

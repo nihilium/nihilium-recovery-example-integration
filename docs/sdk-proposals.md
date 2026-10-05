@@ -127,3 +127,65 @@ the query as the cause. The information is available: the candidate set is known
 date-of-birth-extended variants could be generated and matched against the proof.
 
 **If declined:** the comment and the test here stay, and each integrator relearns this.
+
+## 4. `Eip7702RecoveryAccount` could not receive ETH (resolved in v1.1.0)
+
+**What it was.** v1.0.0 (`0xF5768f61…B872` on Arbitrum Sepolia) had no `receive()` and no
+`fallback()`. Under EIP-7702 every call to a delegated EOA runs the delegate's code, including a plain
+value transfer. So once an EOA delegated to it, nobody could send it ETH again, and a lost key cannot
+undo a delegation.
+
+**What changed.** v1.1.0 (`0x2577F7c1…cA76`) adds `receive()` and the ERC-721 and ERC-1155 receiver
+hooks, and `eip7702AccountAddresses` points at it. On Arbitrum Sepolia, a 1-wei `eth_call` to v1.1.0
+succeeds and the same call to v1.0.0 reverts.
+
+**What this repo keeps.** The protect preflight still makes that call before signing any
+authorization (`settlement/eip7702/preflight.ts`, code `implementation-cannot-receive`). It checks the
+property rather than a version string, so a regression cannot be installed by this app.
+
+**Still open, and small.** Core's `Tier` is `"smart-account" | "script"`, with no value for a delegated
+EOA. This repo uses `"smart-account"`. Core documents `tier` as what decides which veto capabilities
+exist, and a delegated EOA has all of them. But it also keeps a protocol-level key that no contract can
+revoke, and neither value describes that. **If declined:** nothing breaks; the label reads slightly
+wrong.
+
+## 5. `watchtower-evm` cannot watch an `Eip7702RecoveryAccount`
+
+**Today.** `EvmRecoveryProbe` reads the ERC-7579 `RecoveryModule`. It calls `stateOf(account)`,
+`attemptOf(account)` and `configOf(account)` on a module address. The 7702 account is its own
+contract, and its views take no argument. `stateOf()` has a different selector, and `attemptOf()`
+returns `(intentHash, attemptSeq, attempt)` and `configOf()` returns seven values. Nothing under
+`packages/` mentions 7702.
+
+**What this repo does instead.** Arbitrum Sepolia is registered with its off-chain target only. The
+recovery card lists it under "Not watched on-chain" with the reason, and the server's boot banner says
+the same. The unseal signal still fires for it, so an attempt is still caught before anything reaches
+a chain. What is lost is the on-chain countdown (`actBefore`) and the after-the-fact epoch check.
+
+**Proposed change.** A second kind in `watchtower-evm` (for example `evm-7702-recovery-account`) whose
+target carries `{ namespace, accountId, implementation, expectedRecoveryOwner, expectedEpoch }`. It
+should also check that the account's code is still the delegation designator for `implementation`: a
+re-delegation away is the 7702 form of an uninstalled module, and should read as
+`integrity: "changed"`. **If declined:** Arbitrum stays watched off-chain only.
+
+## 6. `LocalWatchStore`'s heartbeat makes quiet watches read as degraded
+
+**Today.** `WatchtowerService` marks a watch `degraded` once `now - lastCompletePollAt` exceeds
+`staleAfterSeconds`, which defaults to three poll intervals. `LocalWatchStore.recordPoll` writes a poll
+line only when a verdict changed or when `heartbeatSeconds` has passed, which defaults to 3600. A watch
+where nothing is happening therefore never advances `lastCompletePollAt` between heartbeats. With the
+SDK's own defaults (300 s polls, so stale after 900 s), every quiet watch reads **degraded** for about
+45 minutes of every hour. With this demo's 15 s polls it happens 45 seconds after the first check.
+This was found on the first live run: all three targets reported `clear`, and the status said
+"degraded — 0 target(s) could not be checked".
+
+It fails loud rather than quiet, which is the right direction. But a watch that reads degraded most of
+the time teaches a user to ignore the word.
+
+**What this repo does instead.** `server/src/index.ts` passes `heartbeatSeconds:
+config.watchtowerPollSeconds`, so every cycle is recorded.
+
+**Proposed change.** Either tie the default heartbeat to `staleAfterSeconds`, or have the store record
+`lastCompletePollAt` on every complete cycle and throttle only the per-target lines. Add a test that a
+quiet watch stays `watching` across several stale windows. **If declined:** every integrator must find
+and set `heartbeatSeconds`, and the default configuration misreports.

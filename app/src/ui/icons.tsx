@@ -13,13 +13,14 @@
  */
 import type { IconName } from "../integration/chains/types.js";
 import { icons as dsIcons } from "./ds.js";
-import { EthereumMark, SolanaMark, ZcashMark } from "./chainLogos.js";
+import { ArbitrumMark, EthereumMark, SolanaMark, ZcashMark } from "./chainLogos.js";
 
 const marks: Record<IconName, React.ComponentType<{ className?: string }>> = {
     ...dsIcons,
     ethereum: EthereumMark,
     solana: SolanaMark,
     zcash: ZcashMark,
+    arbitrum: ArbitrumMark,
 };
 
 export type { IconName };

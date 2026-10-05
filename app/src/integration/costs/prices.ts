@@ -65,6 +65,14 @@ export const USD_DECIMALS = 6;
 export interface MainnetPrices {
     /** What one unit of EVM gas costs right now, in wei. */
     gasPriceWei: bigint;
+    /**
+     * What one unit of gas costs on Arbitrum One, in wei, for steps that run on Arbitrum.
+     *
+     * An L2 price and a separate number on purpose: pricing an Arbitrum step at mainnet gas
+     * overstates it by two orders of magnitude. Arbitrum folds its L1 data cost into `gasUsed` at
+     * this same price, so a measured figure already includes it.
+     */
+    arbitrumGasPriceWei: bigint;
     /** Micro-dollars: 2677.738300 USD is `2_677_738_300n`. */
     ethUsdMicros: bigint;
     solUsdMicros: bigint;
@@ -81,13 +89,14 @@ export interface MainnetPrices {
 export async function readMainnetPrices(clients: {
     /** Ethereum mainnet: the base fee, the tip, and ETH/USD. */
     ethereum: PublicClient;
-    /** Arbitrum One: SOL/USD. */
+    /** Arbitrum One: SOL/USD, and the gas price for Arbitrum steps. */
     arbitrum: PublicClient;
 }): Promise<MainnetPrices> {
     const client = clients.ethereum;
-    const [block, tip, eth, sol] = await Promise.all([
+    const [block, tip, arbitrumGas, eth, sol] = await Promise.all([
         client.getBlock({ blockTag: "latest" }),
         client.estimateMaxPriorityFeePerGas(),
+        clients.arbitrum.getGasPrice(),
         readFeed(client, ETH_USD_FEED, "ETH/USD"),
         readFeed(clients.arbitrum, SOL_USD_FEED, "SOL/USD"),
     ]);
@@ -104,6 +113,7 @@ export async function readMainnetPrices(clients: {
         // — a ceiling you authorise so a rising base fee cannot strand the transaction — and the
         // difference is refunded. Charging it here would overstate every figure on screen by ~20%.
         gasPriceWei: block.baseFeePerGas + tip,
+        arbitrumGasPriceWei: arbitrumGas,
         ethUsdMicros: eth.usdMicros,
         solUsdMicros: sol.usdMicros,
         asOfSeconds: Math.min(eth.updatedAt, sol.updatedAt),

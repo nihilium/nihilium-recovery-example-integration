@@ -21,6 +21,7 @@
     "@nihilium/recovery-watchtower": "file:../../recovery-sdk/packages/watchtower",
     "@nihilium/recovery-watchtower-evm": "file:../../recovery-sdk/packages/adapters/watchtower-evm",
     "@nihilium/recovery-watchtower-nihilium": "file:../../recovery-sdk/packages/adapters/watchtower-nihilium",
+    "@nihilium/recovery-watchtower-solana": "file:../../recovery-sdk/packages/adapters/watchtower-solana",
     "@coral-xyz/anchor": "^0.31.1",
     "@scure/bip32": "^2.4.0",
     "@scure/bip39": "^2.4.0",

@@ -69,7 +69,11 @@ describe("the copy line", () => {
         const all = readSources("src");
         const violations = all.flatMap((file) =>
             file.imports
-                .filter((specifier) => NODE_ONLY_PACKAGES.some((pkg) => specifier.startsWith(pkg)))
+                // The package or a subpath of it, never a prefix: `recovery-watchtower-evm` is
+                // browser-safe and must not be caught by `recovery-watchtower`.
+                .filter((specifier) =>
+                    NODE_ONLY_PACKAGES.some((pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`)),
+                )
                 .map((specifier) => `${file.path} -> ${specifier}`),
         );
         expect(violations, "the server holds these; a browser import breaks at runtime").toEqual([]);

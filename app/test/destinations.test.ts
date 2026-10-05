@@ -45,6 +45,12 @@ describe("a destination per chain", () => {
         expect(destinationFor(A, "evm-sepolia")!.derivationPath).toContain("/1'/");
     });
 
+    it("hands Arbitrum to the same key as Sepolia: a plain EOA on both", () => {
+        const arbitrum = destinationFor(A, "arbitrum-sepolia")!;
+        expect(arbitrum.address).toBe(destinationFor(A, "evm-sepolia")!.address);
+        expect(arbitrum.derivationPath).toContain("/1'/");
+    });
+
     it("returns null for a chain with no destination rather than guessing one", () => {
         expect(destinationFor(A, "zcash-testnet")).toBeNull();
     });

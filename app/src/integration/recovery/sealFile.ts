@@ -117,7 +117,7 @@ export function parseSealFile(text: string): SealFile {
         );
     }
     if (!file.seal || !file.gate || !Array.isArray(file.chains) || file.chains.length === 0) {
-        throw new SealFileError("That seal file is incomplete — it carries no gate or no chains.");
+        throw new SealFileError("That seal file is incomplete.");
     }
     return file as SealFile;
 }

@@ -6,6 +6,10 @@
  * does not move anything on-chain, and a user who read "reset" as "undo" would be wrong in the
  * direction that loses funds.
  *
+ * **Seeds by default, everything on request.** The default keeps the seals and records, so "lose the
+ * seed, then recover" needs no file. "Also delete seals and records" is the full wipe. See
+ * `demo/reset.ts`.
+ *
  * **What it checks first.** Every seed whose accounts still hold something is listed with its phrase
  * one click from the clipboard, and whether anything but that phrase could reach the account
  * afterwards. A seed sealed but never protected on-chain looks safe and is not — a recovery opens its
@@ -23,11 +27,16 @@ import { Button, Checkbox, StatusMessage } from "./ds.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Notice } from "./Notice.js";
 
-const REACH_LABELS: Record<AccountReach, string> = {
-    protected: "protected on-chain — recoverable only with its seal file",
-    "phrase-only": "not protected on-chain — only the phrase reaches it",
-    unknown: "protection could not be checked",
-};
+function reachLabel(reach: AccountReach, keepRecovery: boolean): string {
+    if (reach === "protected") {
+        return keepRecovery
+            ? "protected on-chain — recoverable from this browser"
+            : "protected on-chain — recoverable only with its seal file";
+    }
+    return reach === "phrase-only"
+        ? "not protected on-chain — only the phrase reaches it"
+        : "protection could not be checked";
+}
 
 export function ResetDialog({
     open,
@@ -49,6 +58,9 @@ export function ResetDialog({
     const [risks, setRisks] = useState<SeedAtRisk[] | null>(null);
     const [riskError, setRiskError] = useState<string | null>(null);
     const [accepted, setAccepted] = useState(false);
+    // Off by default: losing the seed and recovering is the demo, and the seal stands in for the
+    // copy a real user keeps off the device. Wiping it too is the "start from nothing" reset.
+    const [wipeRecovery, setWipeRecovery] = useState(false);
 
     useEffect(() => {
         let live = true;
@@ -71,7 +83,7 @@ export function ResetDialog({
         setBusy(true);
         setError(null);
         try {
-            await resetDemo();
+            await resetDemo({ keepRecovery: !wipeRecovery });
             // Reloaded rather than re-rendered: every hook here holds state derived from the two
             // stores that no longer exist, and reconciling that in place is a lot of code for a
             // path whose whole point is that nothing is worth keeping.
@@ -94,16 +106,28 @@ export function ResetDialog({
                         onClick={() => void run()}
                         disabled={busy || checking || (mustAccept && !accepted)}
                     >
-                        {busy ? "Clearing…" : checking ? "Checking the seeds…" : "Delete everything"}
+                        {busy
+                            ? "Clearing…"
+                            : checking
+                              ? "Checking the seeds…"
+                              : wipeRecovery
+                                ? "Delete everything"
+                                : "Reset the wallet"}
                     </Button>
                 </DialogActions>
             }
         >
             <div className="stack">
                 <Notice tone="caution">
-                    Deletes every seed, seal, record and handover in this browser. Download seal files
-                    first — they exist nowhere else.
+                    {wipeRecovery
+                        ? "Deletes every seed, seal, record and handover in this browser. Download seal files first — they exist nowhere else."
+                        : "Deletes every seed and handover in this browser. Seals and records stay, so recovering needs no file."}
                 </Notice>
+                <Checkbox
+                    label="Also delete seals and records"
+                    checked={wipeRecovery}
+                    onChange={(event) => setWipeRecovery(event.target.checked)}
+                />
                 <p>On-chain accounts and pending recoveries are unaffected.</p>
 
                 {checking && <p className="muted">Checking what each seed still holds…</p>}
@@ -125,7 +149,11 @@ export function ResetDialog({
                                 </div>
                                 <dl className="rows">
                                     {seed.accounts.map((account) => (
-                                        <SeedAccount key={account.chainLabel} account={account} />
+                                        <SeedAccount
+                                            key={account.chainLabel}
+                                            account={account}
+                                            keepRecovery={!wipeRecovery}
+                                        />
                                     ))}
                                 </dl>
                             </div>
@@ -147,7 +175,13 @@ export function ResetDialog({
     );
 }
 
-function SeedAccount({ account }: { account: SeedAtRisk["accounts"][number] }) {
+function SeedAccount({
+    account,
+    keepRecovery,
+}: {
+    account: SeedAtRisk["accounts"][number];
+    keepRecovery: boolean;
+}) {
     return (
         <>
             <dt>{account.chainLabel}</dt>
@@ -158,7 +192,7 @@ function SeedAccount({ account }: { account: SeedAtRisk["accounts"][number] }) {
                         : `${formatAmount(account.balance.raw, account.balance.decimals)} ${account.balance.symbol}`}
                 </span>
                 {" · "}
-                {REACH_LABELS[account.reach]}
+                {reachLabel(account.reach, keepRecovery)}
             </dd>
         </>
     );

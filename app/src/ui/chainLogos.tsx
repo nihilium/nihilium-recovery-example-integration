@@ -68,3 +68,29 @@ export function ZcashMark({ className }: MarkProps) {
         </svg>
     );
 }
+
+/**
+ * Arbitrum's hexagon and its two strokes, simplified to line work.
+ *
+ * The official mark is a filled shield in two blues with a white "A" cut through it. Filled and
+ * monochrome, that reads as a blob at tab size, so this keeps the outline and the two diagonal
+ * strokes that make it recognisable.
+ */
+export function ArbitrumMark({ className }: MarkProps) {
+    return (
+        <svg
+            className={className}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M12 2.4 20.3 7.2v9.6L12 21.6 3.7 16.8V7.2z" />
+            <path d="M9.2 16.9 13 7.6h1.6l4 10" />
+            <path d="M5.9 15.6 9.4 7.6h1.8" />
+        </svg>
+    );
+}

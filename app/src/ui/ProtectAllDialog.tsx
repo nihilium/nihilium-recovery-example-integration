@@ -5,9 +5,9 @@
  * point: which chains it will touch, which it will leave, and why. A button that quietly did four
  * things to three chains would be the version of this worth distrusting.
  *
- * **Skipped chains are shown, with reasons.** They are the half a reader cannot otherwise discover —
- * a chain left unprotected because its balance read as zero, or because this build cannot settle it,
- * looks identical from outside to a chain that is fine.
+ * **Skipped chains are shown only when something is at stake.** A chain with no funds, or one already
+ * protected, is noise here. A chain whose state could not be read is not, because from outside it
+ * looks identical to a chain that is fine — so those rows stay, with their reason.
  */
 import { formatAmount } from "../integration/chains/amounts.js";
 import type { ProtectTarget, SkippedChain } from "../integration/recovery/settlement/coverage.js";
@@ -47,6 +47,7 @@ export function ProtectAllDialog({
     // the rows it is reporting on.
     const waiting = reading && !running && !done;
     const failures = results.filter((row) => row.failure !== null);
+    const unresolved = skipped.filter((row) => !row.quiet);
 
     /**
      * Priced for exactly the chains this run would touch, and per chain rather than in aggregate.
@@ -119,8 +120,8 @@ export function ProtectAllDialog({
                                     </span>
                                     <span className="muted">
                                         {target.action === "update"
-                                            ? "replace the old gate"
-                                            : "register this gate"}
+                                            ? "update"
+                                            : "protect"}
                                     </span>
                                     <span className="mono">{outcomeOf(protectAll, target.chainId)}</span>
                                 </div>
@@ -131,10 +132,10 @@ export function ProtectAllDialog({
                     </>
                 )}
 
-                {skipped.length > 0 && (
+                {unresolved.length > 0 && (
                     <div className="stack">
-                        <span className="field__label">Not touched</span>
-                        {skipped.map((row) => (
+                        <span className="field__label">Not protected</span>
+                        {unresolved.map((row) => (
                             <div className="coverage-row" key={row.chainId}>
                                 <span>{row.chainLabel}</span>
                                 <span className="muted">{row.reason}</span>

@@ -25,6 +25,7 @@ import type { VaultDeps } from "../integration/recovery/vault.js";
 import { IdbSealedDataStore } from "../integration/storage/dataStore.js";
 import { IdbSealStore } from "../integration/storage/sealStore.js";
 import { readEnv, type DemoEnv } from "./env.js";
+import { WatchtowerClient } from "@nihilium/recovery-core";
 import { createRecordHost, type RecordHost } from "../integration/recovery/recordHost.js";
 
 export interface AppBindings {
@@ -44,6 +45,9 @@ export interface AppBindings {
      * secret is configured; reading needs no credential, so a recovery works without it.
      */
     recordHost(url?: string): RecordHost;
+    /** This app's watchtower: `{serverUrl}/api/watchtower`. Reading a watch needs no credential. */
+    watchtowerUrl: string;
+    watchtower(): WatchtowerClient;
 }
 
 export function createAppBindings(): AppBindings {
@@ -55,6 +59,7 @@ export function createAppBindings(): AppBindings {
     const handovers = new HandoverStore();
     // The server's record role, mounted at `/api`: `GET|POST /api/records/:id`.
     const recordHostUrl = `${env.serverUrl.replace(/\/+$/, "")}/api`;
+    const watchtowerUrl = `${env.serverUrl.replace(/\/+$/, "")}/api/watchtower`;
 
     let methods: MethodRegistry | null = null;
     let methodError: string | null = null;
@@ -88,6 +93,7 @@ export function createAppBindings(): AppBindings {
             evmRpcUrl: env.sepoliaRpcUrl,
             evmBundlerUrl: env.bundlerUrl,
             solanaRpcUrl: env.solanaRpcUrl,
+            arbitrumSepoliaRpcUrl: env.arbitrumSepoliaRpcUrl,
             serverUrl: env.serverUrl,
             moduleAttester: env.moduleAttester,
         }),
@@ -97,6 +103,8 @@ export function createAppBindings(): AppBindings {
         handovers,
         stores: { sealStore, dataStore, vaults },
         recordHostUrl,
+        watchtowerUrl,
+        watchtower: () => new WatchtowerClient({ baseUrl: watchtowerUrl }),
         recordHost: (url = recordHostUrl) =>
             createRecordHost({
                 url,

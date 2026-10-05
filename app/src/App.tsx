@@ -34,6 +34,7 @@ import { useChainCoverage } from "./demo/useChainCoverage.js";
 import { useProtectAll } from "./demo/useProtectAll.js";
 import { chainsToProtect, staleChains } from "./integration/recovery/settlement/coverage.js";
 import { ProtectAllDialog } from "./ui/ProtectAllDialog.js";
+import { useWatchtower } from "./demo/useWatchtower.js";
 import type { VaultRecord } from "./integration/recovery/vaultRecords.js";
 import { Button, StatusMessage, TopBar } from "./ui/ds.js";
 import { AddressChip } from "./ui/AddressChip.js";
@@ -161,6 +162,16 @@ export function App() {
         () => staleChains(coverage.rows).map((row) => row.chainLabel),
         [coverage.rows],
     );
+    // Re-registers the watch when protection changed, and only then: a key rather than the rows,
+    // because the rows are re-read on every focus and each read would re-sync for nothing.
+    const protectionKey = useMemo(
+        () =>
+            coverage.rows
+                .map((row) => `${row.chainId}:${row.onchain?.installed}:${row.onchain?.matchesVault}`)
+                .join("|"),
+        [coverage.rows],
+    );
+    const watch = useWatchtower(bindings, wallet, flow.vault, protectionKey);
     const protectAll = useProtectAll(bindings, flow.vault, wallet, bindings.methods, async () => {
         // The ledger and every chain read are stale the moment one of these lands.
         await flow.reload();
@@ -333,9 +344,7 @@ export function App() {
                         chainLabel={chain.label}
                         onchainAttempt={settlement.state.onchain?.attempt}
                         onchainClock={settlement.state.onchain?.clock}
-                        // No watchtower role exists yet. Passed as a value rather than assumed, so
-                        // the day one is built this starts telling the truth without being hunted.
-                        watching={false}
+                        watch={watch}
                         coverage={{ targets, stale }}
                         onProtectAll={() => {
                             protectAll.reset();

@@ -128,6 +128,7 @@ from wherever it keeps it. A real deployment holds no phrase that derives all of
 |---|---|---|
 | `PORT`, `CORS_ORIGIN` | `8787`, `http://localhost:5173` | |
 | `CHAIN_ID`, `SEPOLIA_RPC_URL` | Sepolia, a public RPC | `CHAIN_ID` also forms the CAIP-2 namespace |
+| `ARBITRUM_SEPOLIA_RPC_URL` | a public RPC | the relayer's Arbitrum routes. Roles have the same addresses there as on Sepolia; fund the relayer on Arbitrum Sepolia too |
 | `ROLE_MNEMONIC` | the public demo phrase | every role's keys derive from this |
 | `RELAYER_PRIVATE_KEY`, `PAUSE_AUTHORITY_PRIVATE_KEY`, `ABORT_AUTHORITY_PRIVATE_KEY`, `RESUME_MEMBER_PRIVATE_KEYS` | derived | per-role overrides; secp256k1 only |
 | `RESUME_THRESHOLD` | `2` | k of the resume members. `validateVetoConfig` refuses 1 unless the account is declared low-value |
@@ -146,6 +147,7 @@ from wherever it keeps it. A real deployment holds no phrase that derives all of
 | `VITE_NIHILIUM_THRESHOLD`, `VITE_NIHILIUM_PROCESSOR_COUNT` | `1`, `1` | Nihilium's **processor** cohort, not the guardian quorum. One processor is published |
 | `VITE_SERVER_URL` | `http://localhost:8787` | |
 | `VITE_SEPOLIA_RPC_URL`, `VITE_BUNDLER_URL` | public endpoints | |
+| `VITE_ARBITRUM_SEPOLIA_RPC_URL` | a public endpoint | the testnet the 7702-protected EOA lives on. Not `VITE_ARBITRUM_RPC_URL`, which is Arbitrum One and read for prices only |
 | `VITE_DEMO_MNEMONIC` | the phrase in `src/demo/mnemonic.ts` | the wallet's seed, not the roles' |
 | `VITE_RECORD_APPEND_SECRET`, `VITE_WATCH_REGISTER_SECRET` | **generated** | must match `server/.env` |
 | `VITE_NIHILIUM_API_KEY` | **required** | the ceremony is paid and there is no free mode; without it the recovery panel says so rather than degrading to a simulation. Reaches the browser, which is an accepted demo trade-off — it is a spend limit on sealing, not access to funds |

@@ -106,6 +106,15 @@ export interface Config {
      * funded look identical to a caller that does not check.
      */
     solana: SolanaConfig | null;
+    /** Arbitrum Sepolia. Always on: a public RPC is the default, and the relayer routes are cheap. */
+    arbitrumSepolia: ArbitrumSepoliaConfig;
+}
+
+export interface ArbitrumSepoliaConfig {
+    chainId: 421614;
+    /** CAIP-2. The key for `ROLE_CHAINS`, and what the app's chain module pins. */
+    namespace: "eip155:421614";
+    rpcUrl: string;
 }
 
 export interface SolanaConfig {
@@ -222,4 +231,13 @@ export const config: Config = {
     allowForcedPoll: bool("DEMO_ALLOW_FORCED_POLL", true),
     fundMaxWei: BigInt(str("DEMO_FUND_MAX_WEI", "20000000000000000")),
     solana: solanaConfig(),
+    arbitrumSepolia: arbitrumSepoliaConfig(),
 };
+
+function arbitrumSepoliaConfig(): ArbitrumSepoliaConfig {
+    return {
+        chainId: 421614,
+        namespace: "eip155:421614",
+        rpcUrl: str("ARBITRUM_SEPOLIA_RPC_URL", "https://sepolia-rollup.arbitrum.io/rpc"),
+    };
+}

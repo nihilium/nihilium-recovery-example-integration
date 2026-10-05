@@ -12,8 +12,16 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, http, type Address } from "viem";
-import { sepolia } from "viem/chains";
-import { recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
+import { arbitrumSepolia, sepolia } from "viem/chains";
+import { eip7702AccountAddress, recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
+import {
+    ARBITRUM_SEPOLIA_CHAIN_ID,
+    ARBITRUM_SEPOLIA_ID,
+} from "../integration/chains/arbitrumSepolia.js";
+import {
+    createEip7702Reader,
+    readAttemptClock as read7702AttemptClock,
+} from "../integration/recovery/settlement/eip7702/reads.js";
 import type { VetoState } from "@nihilium/recovery-core";
 import {
     createModuleReader,
@@ -186,6 +194,25 @@ async function readOne(
             const installed = await reader.isInitialized(target.accountId as Address);
             if (!installed) return { ...base, projected: null, clock: null, unreadable: null };
             const read = await readEvmAttemptClock(reader, target.accountId as Address);
+            return { ...base, ...read, unreadable: null };
+        }
+
+        if (chainId === ARBITRUM_SEPOLIA_ID) {
+            const client = createPublicClient({
+                chain: arbitrumSepolia,
+                transport: http(bindings.env.arbitrumSepoliaRpcUrl),
+            });
+            const reader = createEip7702Reader(
+                client,
+                target.accountId as Address,
+                eip7702AccountAddress(ARBITRUM_SEPOLIA_CHAIN_ID) as Address,
+                chain.namespace,
+            );
+            // Not delegated, or delegated and never registered: nothing is counting.
+            if ((await reader.delegation()).kind !== "ours" || !(await reader.isRegistered())) {
+                return { ...base, projected: null, clock: null, unreadable: null };
+            }
+            const read = await read7702AttemptClock(reader);
             return { ...base, ...read, unreadable: null };
         }
 

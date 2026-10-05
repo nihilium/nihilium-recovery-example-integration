@@ -70,6 +70,11 @@ export interface SkippedChain {
     chainId: string;
     chainLabel: string;
     reason: string;
+    /**
+     * Nothing is at stake: no funds, already protected, or a balance the demo made up. A UI may drop
+     * these rows. The rest — an unread state, a spent vault, no gate — are the skips worth showing.
+     */
+    quiet: boolean;
 }
 
 export function chainsToProtect(rows: readonly CoverageRow[]): {
@@ -78,22 +83,26 @@ export function chainsToProtect(rows: readonly CoverageRow[]): {
 } {
     const targets: ProtectTarget[] = [];
     const skipped: SkippedChain[] = [];
-    const skip = (row: CoverageRow, reason: string) =>
-        skipped.push({ chainId: row.chainId, chainLabel: row.chainLabel, reason });
+    const skip = (row: CoverageRow, reason: string, quiet = false) =>
+        skipped.push({ chainId: row.chainId, chainLabel: row.chainLabel, reason, quiet });
 
     for (const row of rows) {
         if (!row.settles) {
-            skip(row, "no settlement is wired for this chain in this build");
+            skip(
+                row,
+                "no settlement is wired for this chain in this build",
+                row.balanceSimulated === true || row.balanceRaw === 0n,
+            );
             continue;
         }
         if (!row.hasVault) {
-            skip(row, "no gate to register — set up recovery first");
+            skip(row, "set up recovery first");
             continue;
         }
         if (row.vaultSpent) {
             // A spent vault's key is exposed. Registering it again would install a gate whose key
             // the recovery already handed out.
-            skip(row, "vault spent — set up a new gate");
+            skip(row, "already recovered — set up recovery again");
             continue;
         }
         if (row.onchain === null) {
@@ -106,7 +115,7 @@ export function chainsToProtect(rows: readonly CoverageRow[]): {
             continue;
         }
         if (row.onchain.installed && row.onchain.matchesVault) {
-            skip(row, "already protected by this gate");
+            skip(row, "already protected", true);
             continue;
         }
         // Readable and empty. The only skip that is a judgement about value rather than about state.
@@ -114,6 +123,7 @@ export function chainsToProtect(rows: readonly CoverageRow[]): {
             skip(
                 row,
                 row.onchain.installed ? "no funds · still on the old guardians" : "no funds",
+                true,
             );
             continue;
         }

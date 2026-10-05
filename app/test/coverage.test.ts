@@ -76,7 +76,7 @@ describe("chains that get skipped, and why", () => {
         const { skipped } = chainsToProtect([
             row({ onchain: { installed: true, matchesVault: true } }),
         ]);
-        expect(skipped[0]!.reason).toBe("already protected by this gate");
+        expect(skipped[0]!.reason).toBe("already protected");
     });
 
     it("distinguishes a chain that failed to read from one that was never asked", () => {
@@ -105,12 +105,25 @@ describe("chains that get skipped, and why", () => {
 
     it("skips a spent vault, which needs a new gate rather than a registration", () => {
         const { skipped } = chainsToProtect([row({ vaultSpent: true })]);
-        expect(skipped[0]!.reason).toContain("spent");
+        expect(skipped[0]!.reason).toContain("already recovered");
     });
 
     it("skips a wallet with no gate at all", () => {
         const { skipped } = chainsToProtect([row({ hasVault: false })]);
         expect(skipped[0]!.reason).toContain("set up recovery first");
+    });
+
+    it("marks as quiet only the skips with nothing at stake", () => {
+        // The dialog drops quiet rows. An unread chain must never be one: from outside it looks
+        // exactly like a chain that is fine.
+        const quiet = (over: Partial<CoverageRow>) => chainsToProtect([row(over)]).skipped[0]!.quiet;
+        expect(quiet({ balanceRaw: 0n })).toBe(true);
+        expect(quiet({ onchain: { installed: true, matchesVault: true } })).toBe(true);
+        expect(quiet({ settles: false, balanceSimulated: true })).toBe(true);
+        expect(quiet({ settles: false })).toBe(false);
+        expect(quiet({ onchain: null, onchainError: "boom" })).toBe(false);
+        expect(quiet({ onchain: null, onchainError: null })).toBe(false);
+        expect(quiet({ vaultSpent: true })).toBe(false);
     });
 });
 

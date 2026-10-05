@@ -9,6 +9,8 @@
  * there registers a key nothing honours. Returning a stub that failed at submit time would look like
  * a wired chain having a bad day.
  */
+import { ARBITRUM_SEPOLIA_ID } from "../integration/chains/arbitrumSepolia.js";
+import { createEip7702Handover } from "../integration/recovery/handover/eip7702.js";
 import { createEvmHandover } from "../integration/recovery/handover/evm.js";
 import { createSolanaHandover } from "../integration/recovery/handover/solana.js";
 import type { ChainHandover } from "../integration/recovery/handover/types.js";
@@ -21,6 +23,9 @@ export function handoverFor(bindings: AppBindings, chainId: string): ChainHandov
             rpcUrl: bindings.env.sepoliaRpcUrl,
             bundlerUrl: bindings.env.bundlerUrl,
         });
+    }
+    if (chainId === ARBITRUM_SEPOLIA_ID) {
+        return createEip7702Handover({ rpcUrl: bindings.env.arbitrumSepoliaRpcUrl });
     }
     if (chainId === "solana-devnet") {
         return createSolanaHandover({ rpcUrl: bindings.env.solanaRpcUrl, cluster: "devnet" });

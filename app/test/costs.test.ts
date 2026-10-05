@@ -16,6 +16,7 @@ import type { MainnetPrices } from "../src/integration/costs/prices.js";
 /** Round numbers, so every expectation below can be checked by hand. */
 const PRICES: MainnetPrices = {
     gasPriceWei: 10_000_000_000n, // 10 gwei
+    arbitrumGasPriceWei: 100_000_000n, // 0.1 gwei — a hundredth of mainnet, as it roughly is
     ethUsdMicros: 2_000_000_000n, // $2,000.00
     solUsdMicros: 100_000_000n, //   $100.00
     asOfSeconds: 1_700_000_000,
@@ -45,6 +46,17 @@ describe("converting chain units to dollars", () => {
         });
         expect(estimate.totalUsdMicros).toBe(2_000_000n);
         expect(formatUsd(estimate.totalUsdMicros!)).toBe("$2.00");
+    });
+
+    it("prices an Arbitrum step at Arbitrum's gas price, not mainnet's", () => {
+        // 100,000 gas x 0.1 gwei = 0.00001 ETH; at $2,000 that is $0.02. At mainnet gas it would
+        // read $2.00 — a hundred times too high for a step that never touches L1 directly.
+        const estimate = estimateCost({
+            operation: "protect",
+            chains: [chain("arbitrum-sepolia", [evmStep(100_000n, { network: "arbitrum" })])],
+            prices: PRICES,
+        });
+        expect(estimate.totalUsdMicros).toBe(20_000n);
     });
 
     it("prices Solana lamports against SOL", () => {
@@ -204,6 +216,25 @@ describe("the work table", () => {
         const fresh = workFor("protect", "solana-devnet", { ...CTX, vaultExists: false })!;
         expect(existing.some((s) => s.rentLamports !== undefined)).toBe(false);
         expect(fresh.some((s) => s.rentLamports !== undefined)).toBe(true);
+    });
+
+    it("charges the 7702 delegation only on an EOA that is not delegated yet", () => {
+        const delegated = workFor("protect", "arbitrum-sepolia", CTX)!;
+        const fresh = workFor("protect", "arbitrum-sepolia", { ...CTX, accountDeployed: false })!;
+        expect(fresh.length).toBe(delegated.length + 1);
+        expect(fresh[0]!.label).toMatch(/7702/);
+    });
+
+    it("prices every Arbitrum step at Arbitrum's gas, and claims no measurement it lacks", () => {
+        const all = (["protect", "recover", "move-funds"] as const).flatMap(
+            (op) => workFor(op, "arbitrum-sepolia", { ...CTX, accountDeployed: false }) ?? [],
+        );
+        expect(all.length).toBeGreaterThan(0);
+        for (const step of all) {
+            expect(step.network).toBe("arbitrum");
+            // No Arbitrum transaction has been sent yet, so nothing may say measured.
+            expect(step.basis).toBe("assumed");
+        }
     });
 
     it("cites a transaction for every step it calls measured", () => {

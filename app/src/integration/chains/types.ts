@@ -16,7 +16,7 @@ import type { SettlementBinding } from "../recovery/settlement/types.js";
 /**
  * A *name*, not a component: React may not cross the copy line.
  *
- * The first six are the design system's Heroicons, for anything conceptual. The lowercase three are
+ * The first six are the design system's Heroicons, for anything conceptual. The lowercase four are
  * the chains' own marks — a chain tab showing a generic shield says nothing about which chain it is,
  * and the design system is not the place for brand logos it does not own. `ui/icons.tsx` resolves
  * every one of these and fails to compile if it misses one.
@@ -30,7 +30,8 @@ export type IconName =
     | "DocumentCheck"
     | "ethereum"
     | "solana"
-    | "zcash";
+    | "zcash"
+    | "arbitrum";
 
 export interface ChainModule {
     readonly id: string;

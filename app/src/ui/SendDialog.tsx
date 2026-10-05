@@ -99,7 +99,7 @@ export function SendDialog({
                         <TextInput
                             value={to}
                             ariaLabel="Recipient address"
-                            placeholder={chain.id === "evm-sepolia" ? "0x…" : "address"}
+                            placeholder={chain.namespace.startsWith("eip155:") ? "0x…" : "address"}
                             onChange={(event) => setTo(event.target.value)}
                             disabled={phase !== "idle"}
                         />

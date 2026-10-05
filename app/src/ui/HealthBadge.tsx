@@ -8,6 +8,7 @@
  *
  * `recoveryHealth.ts` decides what the states are; this only draws them.
  */
+import type { WatchView } from "../integration/recovery/watch.js";
 import { STAGE_LABELS, type RecoveryStage } from "./recoveryHealth.js";
 
 export function StageBadge({ stage }: { stage: RecoveryStage }) {
@@ -20,19 +21,25 @@ export function StageBadge({ stage }: { stage: RecoveryStage }) {
 }
 
 /**
- * Whether anything is watching for a recovery this browser did not start.
+ * What the watchtower says about this vault.
  *
- * `watching` is false everywhere today: the watchtower role is not built. It takes a boolean rather
- * than assuming, so the day it is built this badge starts telling the truth instead of needing to be
- * found and edited.
+ * Four states and only one of them green. `unknown` covers every answer the watchtower cannot vouch
+ * for — never polled, degraded, unreachable — and it is drawn as its own state rather than folded
+ * into "Watched", because a broken watcher that looks like a quiet one is the failure this exists
+ * to prevent.
  */
-export function WatchBadge({ watching }: { watching: boolean }) {
+const WATCH_LABELS: Record<WatchView["state"], string> = {
+    off: "No watchtower",
+    watching: "Watched",
+    alarm: "Recovery attempt detected",
+    unknown: "Watch status unknown",
+};
+
+export function WatchBadge({ view }: { view: WatchView }) {
     return (
-        <span
-            className={`stage stage--${watching ? "watched" : "unwatched"}`}
-        >
+        <span className={`stage stage--watch-${view.state}`} title={view.message}>
             <span className="stage__dot" aria-hidden="true" />
-            {watching ? "Watched" : "No watchtower yet"}
+            {WATCH_LABELS[view.state]}
         </span>
     );
 }

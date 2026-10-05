@@ -512,7 +512,7 @@ body {
 }
 
 .stage--none .stage__dot,
-.stage--unwatched .stage__dot {
+.stage--watch-off .stage__dot {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--nih-color-muted);
 }
@@ -534,8 +534,22 @@ body {
   box-shadow: inset 0 0 0 1px var(--nih-color-text);
 }
 
-.stage--watched .stage__dot {
+.stage--watch-watching .stage__dot {
   background: var(--nih-color-success);
+}
+
+/* Not a tick and not empty: a ring, because the answer is "cannot say", not "nothing". */
+.stage--watch-unknown .stage__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--nih-color-text);
+}
+
+.stage--watch-alarm {
+  color: var(--nih-color-error);
+}
+
+.stage--watch-alarm .stage__dot {
+  background: var(--nih-color-error);
 }
 
 /* Red for executed too: the card showing it belongs to the seed the account was recovered away

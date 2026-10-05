@@ -175,6 +175,13 @@ export function detach<T>(value: T): T {
     return structuredClone(value);
 }
 
+/** Empty the named stores and leave the rest, and the database, in place. */
+export async function clearStores(names: readonly string[], options: IdbOptions = {}): Promise<void> {
+    for (const name of names) {
+        await withStore(options, name, "readwrite", (store, run) => run(store.clear()));
+    }
+}
+
 /**
  * Delete the whole database.
  *
