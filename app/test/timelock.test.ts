@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
     approximate,
+    predatesRegistration,
     progressFraction,
     projectTimelock,
     type AttemptClock,
@@ -234,5 +235,31 @@ describe("progressFraction", () => {
         const early = progressFraction(future, 1_000);
         expect(early).toBeGreaterThanOrEqual(0);
         expect(early).toBeLessThanOrEqual(1);
+    });
+});
+
+describe("predatesRegistration", () => {
+    // The case found live: an abort at 13:03, Arbitrum re-registered by a new vault at 13:21, and
+    // the account still answering ABORTED because its `register` keeps the last attempt.
+    const aborted: AttemptClock = { ...BASE, state: "ABORTED", checkpointSeconds: 1_000 };
+
+    it("treats a finished attempt from before the key was registered as history", () => {
+        expect(predatesRegistration(aborted, 2_000_000)).toBe(true);
+        expect(predatesRegistration({ ...aborted, state: "EXECUTED" }, 2_000_000)).toBe(true);
+    });
+
+    it("keeps a finished attempt that happened under this registration", () => {
+        expect(predatesRegistration(aborted, 500_000)).toBe(false);
+    });
+
+    it("never dismisses a live attempt, whatever its age", () => {
+        for (const state of ["INITIATED", "PAUSED", "EXECUTABLE"] as const) {
+            expect(predatesRegistration({ ...aborted, state }, 2_000_000)).toBe(false);
+        }
+    });
+
+    it("keeps everything when the registration time is unknown", () => {
+        expect(predatesRegistration(aborted, undefined)).toBe(false);
+        expect(predatesRegistration(null, 2_000_000)).toBe(false);
     });
 });

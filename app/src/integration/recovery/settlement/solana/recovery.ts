@@ -27,6 +27,7 @@ import {
 import type { SolanaVaultAddresses } from "./addresses.js";
 import { detachedSignatures, ED25519_IX_INDEX } from "./signing.js";
 import type { VaultProgram } from "./program.js";
+import { submit, type Submitter } from "./submit.js";
 
 export interface SolanaIntentInputs {
     /** Where control lands. Not the guardian — that key signs the handover, it does not receive it. */
@@ -152,19 +153,36 @@ export async function resumeRecovery(
     return signature;
 }
 
-/** Terminal, irreversible, and the owner's own key by default in this demo. */
+/**
+ * Terminal, irreversible, and the owner's own key by default in this demo.
+ *
+ * The abort authority always signs; `via` decides only who pays the fee. On this chain the owner's
+ * key typically holds no SOL (the funds sit in the vault), so the relayer's fee payer is what lets
+ * the owner refuse a recovery at all. Its co-signature authorises nothing the owner did not.
+ */
 export async function abortRecovery(
     ctx: VaultProgram,
-    params: { addresses: SolanaVaultAddresses; abortAuthority: Keypair; onProgress?: (m: string) => void },
+    params: {
+        addresses: SolanaVaultAddresses;
+        abortAuthority: Keypair;
+        via?: Submitter;
+        onProgress?: (m: string) => void;
+    },
 ): Promise<string> {
-    const signature = await ctx.program.methods
+    const builder = ctx.program.methods
         .abort()
         .accounts({
             vault: params.addresses.vault,
             abortAuthority: params.abortAuthority.publicKey,
         })
-        .signers([params.abortAuthority])
-        .rpc();
+        .signers([params.abortAuthority]);
+    const signature = await submit({
+        connection: ctx.connection,
+        owner: params.abortAuthority,
+        builder,
+        via: params.via ?? { kind: "self" },
+        ...(params.onProgress ? { onProgress: params.onProgress } : {}),
+    });
     params.onProgress?.(`abort         tx=${signature} — terminal`);
     return signature;
 }

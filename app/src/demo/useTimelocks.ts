@@ -30,7 +30,10 @@ import {
 import { readAttemptClock as readSolanaAttemptClock } from "../integration/recovery/settlement/solana/relay.js";
 import { createVaultProgram, keypairFromSecret } from "../integration/recovery/settlement/solana/program.js";
 import { solanaVaultAddresses } from "../integration/recovery/settlement/solana/addresses.js";
-import type { AttemptClock } from "../integration/recovery/settlement/timelock.js";
+import {
+    predatesRegistration,
+    type AttemptClock,
+} from "../integration/recovery/settlement/timelock.js";
 import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
 import type { WalletSnapshot } from "./wallet.js";
 import type { AppBindings } from "./bindings.js";
@@ -69,6 +72,8 @@ export interface AttemptTarget {
     /** Solana only: who created the vault PDA, which seeds its address. `null` falls back. */
     creator: string | null;
     vaultId: string;
+    /** When this vault registered its key on the chain (`addedAt`). Older finished attempts are history. */
+    since?: number;
 }
 
 /**
@@ -102,6 +107,7 @@ export function useTimelocks(
                       accountId: record.accountId,
                       creator: record.signerAddress ?? null,
                       vaultId: vault.vaultId,
+                      since: record.addedAt,
                   })),
         [vault],
     );
@@ -213,6 +219,11 @@ async function readOne(
                 return { ...base, projected: null, clock: null, unreadable: null };
             }
             const read = await read7702AttemptClock(reader);
+            // The account keeps its last attempt across a re-register; one that finished before
+            // this vault's key is not this vault's.
+            if (predatesRegistration(read.clock, target.since)) {
+                return { ...base, projected: null, clock: null, unreadable: null };
+            }
             return { ...base, ...read, unreadable: null };
         }
 

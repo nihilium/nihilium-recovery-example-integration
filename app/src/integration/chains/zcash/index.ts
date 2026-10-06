@@ -38,6 +38,7 @@ export function createZcashTestnetChain(): ChainModule {
         id: "zcash-testnet",
         label: "Zcash",
         network: "Testnet · simulated",
+        accountKind: "Transparent addresses, no recovery settlement",
         icon: "zcash",
         // Pinned, and note this one is not a registered CAIP-2 namespace at all. Whatever string
         // sits here is an HKDF input forever; picking it is a decision, not a formatting choice.

@@ -106,7 +106,10 @@ export async function recoverAllChains(
 
     // Loaded once rather than per chain. The SDK would fetch them again on every `recover()`, which
     // is free against IndexedDB and is n round trips against a record host.
-    const entries = params.entries ?? (await deps.dataStore.getEntries(params.vault.recordId));
+    const entries = currentEntries(
+        params.vault,
+        params.entries ?? (await deps.dataStore.getEntries(params.vault.recordId)),
+    );
 
     const shared = shareOneCeremony(recovery.adapter);
     const keys: RecoveredChainKey[] = [];
@@ -198,4 +201,25 @@ export async function recoverAllChains(
             for (const key of keys) key.material?.fill(0);
         },
     };
+}
+
+/**
+ * Only the record each chain currently points at.
+ *
+ * A re-key, which protecting Solana or Arbitrum does whenever the chain is already in the vault,
+ * writes a second record for the same account. The store is append-only, here and on the record
+ * host, so the superseded one stays. The SDK's `recover()` is right to refuse two records for one
+ * account rather than guess. So the app hands it the one its ledger names: `entryId` on each chain
+ * record, which the host merge keeps newest-wins. Superseded roots are then not even decrypted.
+ *
+ * If any chain record predates `entryId`, nothing is filtered: dropping a record the ledger cannot
+ * name would lose that chain rather than disambiguate it.
+ */
+export function currentEntries<T extends { entryId: string }>(
+    vault: Pick<VaultRecord, "chains">,
+    entries: readonly T[],
+): T[] {
+    if (vault.chains.length === 0 || vault.chains.some((chain) => !chain.entryId)) return [...entries];
+    const current = new Set(vault.chains.map((chain) => chain.entryId));
+    return entries.filter((entry) => current.has(entry.entryId));
 }

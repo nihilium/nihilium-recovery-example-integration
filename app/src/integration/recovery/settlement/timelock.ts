@@ -219,3 +219,24 @@ export const DEFAULT_TIMELOCK_SECONDS = 300;
 export function timelockLabel(seconds: number): string {
     return TIMELOCK_CHOICES.find((choice) => choice.seconds === seconds)?.label ?? approximate(seconds);
 }
+
+/**
+ * Whether a finished attempt belongs to an earlier registration rather than to the current one.
+ *
+ * Re-protecting does not clear history everywhere. Re-installing the Sepolia module wipes its
+ * storage, but the 7702 account's `register` leaves the last attempt in place, so after an abort and
+ * a re-protect `stateOf()` still answers ABORTED until a new recovery starts. That attempt is over,
+ * blocks nothing, and is about the previous key, so showing it as this vault's stage is wrong.
+ *
+ * A terminal transition stamps the clock (`checkpointSeconds` is the abort or execute time), so an
+ * attempt that finished before this chain's key was registered (`registeredAtMs`, the chain
+ * record's `addedAt`) predates it. Live attempts are never dismissed this way.
+ */
+export function predatesRegistration(
+    clock: AttemptClock | null,
+    registeredAtMs: number | undefined,
+): boolean {
+    if (clock === null || registeredAtMs === undefined) return false;
+    if (clock.state !== "EXECUTED" && clock.state !== "ABORTED") return false;
+    return clock.checkpointSeconds * 1000 < registeredAtMs;
+}

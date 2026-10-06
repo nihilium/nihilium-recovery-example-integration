@@ -63,6 +63,7 @@ export function createEvmSepoliaChain(options: EvmChainOptions): ChainModule {
         id: "evm-sepolia",
         label: "Ethereum",
         network: "Sepolia",
+        accountKind: "Safe smart account",
         icon: "ethereum",
         // CAIP-2, pinned. An HKDF input — see `ChainModule.namespace`.
         namespace: "eip155:11155111",

@@ -217,8 +217,10 @@ export async function addChainToVault(
     if (existing !== undefined && params.rekey === true) {
         // Re-keying, not double-adding. A chain whose root the app did not keep cannot produce the
         // registration signature its settlement needs, and minting a fresh root for that chain is
-        // the only way to get one. The superseded entry stays in the record — the store is
-        // append-only — and the vault record points at the new key, which is what a recovery reads.
+        // the only way to get one. The superseded entry stays in the record (the store is
+        // append-only), and the vault record points at the new one by `entryId`. The SDK reads
+        // every entry and refuses two for one account, so `recoverAll` hands it only the entries
+        // the ledger names; see `currentEntries`.
         params.onProgress?.(
             `addChain   re-keying ${params.chain.id}; the previous recovery key for this chain is superseded`,
         );

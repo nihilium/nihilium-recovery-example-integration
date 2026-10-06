@@ -53,7 +53,7 @@ import { createVaultProgram, keypairFromSecret } from "./solana/program.js";
 import { createVault, registerGuardian, registrationDigestFor } from "./solana/vault.js";
 import { readAttemptClock, readVaultState } from "./solana/relay.js";
 import { loadFeePayer } from "./solana/submit.js";
-import type { AttemptClock } from "./timelock.js";
+import { predatesRegistration, type AttemptClock } from "./timelock.js";
 import { ARBITRUM_SEPOLIA_CHAIN_ID, ARBITRUM_SEPOLIA_ID } from "../../chains/arbitrumSepolia.js";
 import {
     createEip7702Reader,
@@ -204,6 +204,9 @@ async function read7702(deps: ProtectDeps, params: ReadProtectionParams): Promis
         reader.attemptOf(),
         read7702AttemptClock(reader),
     ]);
+    // `register` leaves the last attempt in place, so an abort from before this key was registered
+    // would otherwise read as this vault's stage forever. See `predatesRegistration`.
+    const history = predatesRegistration(clock.clock, chainRecord?.addedAt);
     return {
         installed: true,
         recoveryOwner: config.recoveryOwner,
@@ -211,9 +214,9 @@ async function read7702(deps: ProtectDeps, params: ReadProtectionParams): Promis
             chainRecord === null
                 ? false
                 : await isProtectedBy7702Vault(reader, chainRecord.recoveryPubKeyHex),
-        attempt: clock.projected,
-        clock: clock.clock,
-        intentHash: attempt.state === null ? null : attempt.intentHash,
+        attempt: history ? null : clock.projected,
+        clock: history ? null : clock.clock,
+        intentHash: history || attempt.state === null ? null : attempt.intentHash,
         epoch: Number(config.epoch),
         configNonce: Number(config.configNonce),
     };

@@ -16,7 +16,14 @@
  * **Assumes:** the module at `recoveryModuleAddress(chainId)` is the one this account installed, and
  * that `intent` reaches `execute` byte-identical — it is re-hashed there and compared.
  */
-import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
+import {
+    createPublicClient,
+    createWalletClient,
+    http,
+    type Address,
+    type Hex,
+    type PublicClient,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { recoveryModuleAbi, recoveryModuleAddress } from "@nihilium/recovery-onchain-evm";
@@ -52,7 +59,7 @@ export interface EvmHandoverConfig {
 export const SWEEP_RESERVE_WEI = 3_000_000_000_000_000n;
 
 export function createEvmHandover(config: EvmHandoverConfig): ChainHandover {
-    const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
+    const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) }) as PublicClient;
     const reader = () =>
         createModuleReader(
             client,
@@ -150,13 +157,20 @@ export function createEvmHandover(config: EvmHandoverConfig): ChainHandover {
                 transport: http(config.rpcUrl),
             });
             params.onProgress?.(`abort      as ${account.address}`);
-            const hash = await wallet.writeContract({
+            const call = {
                 address: recoveryModuleAddress(config.chainId) as Address,
                 abi: recoveryModuleAbi,
                 functionName: "abort",
                 args: [params.chainRecord.accountId as Address],
-                chain: sepolia,
-            });
+            } as const;
+            await ensureGas(
+                client,
+                params.serverUrl,
+                account.address,
+                () => client.estimateContractGas({ ...call, account: account.address }),
+                params.onProgress,
+            );
+            const hash = await wallet.writeContract({ ...call, chain: sepolia });
             await client.waitForTransactionReceipt({ hash });
             params.onProgress?.(`abort      tx=${hash} — terminal`);
             return { hash };
@@ -189,6 +203,49 @@ export function createEvmHandover(config: EvmHandoverConfig): ChainHandover {
             return { hash: receipt.transactionHash, moved };
         },
     };
+}
+
+/**
+ * Make sure the abort key can pay for its own transaction, topping it up from the relayer if not.
+ *
+ * `abort` checks the sender, so nobody can relay it: the key must send it and pay for it. On this
+ * chain that key is the Safe's owner, and the Safe holds the funds, not the key, which is usually
+ * empty. The demo's relayer has a capped `/fund` route, so the key is topped up with twice the
+ * estimated cost just before sending. The top-up authorises nothing; the abort is still the key's
+ * own transaction.
+ *
+ * A real wallet keeps a little gas on its abort key, or makes the abort key an account that can be
+ * sponsored. Assumes the relayer's `/fund` cap exceeds one abort's cost.
+ */
+async function ensureGas(
+    client: PublicClient,
+    serverUrl: string,
+    from: Address,
+    estimateGas: () => Promise<bigint>,
+    onProgress?: (message: string) => void,
+): Promise<void> {
+    const [gas, fees, balance] = await Promise.all([
+        estimateGas(),
+        client.estimateFeesPerGas(),
+        client.getBalance({ address: from }),
+    ]);
+    const need = gas * fees.maxFeePerGas;
+    if (balance >= need) return;
+    const wei = need * 2n - balance;
+    onProgress?.(`fund       ${wei} wei from the relayer — the abort key has no gas of its own`);
+    const response = await fetch(`${serverUrl}/api/roles/relayer/fund`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: from, wei: wei.toString() }),
+    });
+    const body = (await response.json().catch(() => ({}))) as { hash?: string; error?: string };
+    if (!response.ok || body.hash === undefined) {
+        throw new Error(
+            `The abort key ${from} has no gas, and the relayer would not fund it: ` +
+                `${body.error ?? `HTTP ${response.status}`}. Send it a little Sepolia ETH and abort again.`,
+        );
+    }
+    await client.waitForTransactionReceipt({ hash: body.hash as Hex });
 }
 
 /** `bigint` is not JSON. One place, so the relayer and IndexedDB see the same shape. */

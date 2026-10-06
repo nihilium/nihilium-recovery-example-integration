@@ -95,6 +95,22 @@ body {
   color: var(--nih-color-on-solid);
 }
 
+/* A chain this build cannot settle. Visible but inert, with the reason one hold away — see
+ * `COMING_SOON` in WalletSwitcher.tsx. */
+.wallet-tab:disabled {
+  color: var(--nih-color-muted);
+  cursor: not-allowed;
+}
+
+.wallet-tab:disabled:hover {
+  background: var(--nih-color-surface);
+}
+
+.wallet-tab:disabled[aria-selected="true"] {
+  background: var(--nih-color-surface);
+  color: var(--nih-color-muted);
+}
+
 .wallet-tab__icon {
   width: 1.1rem;
   height: 1.1rem;
@@ -1072,6 +1088,11 @@ body {
 .tip__trigger:hover,
 .tip__trigger:focus-visible {
   color: var(--nih-color-text);
+}
+
+/* `as="div"`: the caller's own control keeps its styling; the wrapper only positions. */
+.tip__trigger--plain {
+  display: contents;
 }
 
 /* In the top layer via `popover`, so it is not clipped by the dialog body's `overflow-y: auto` and

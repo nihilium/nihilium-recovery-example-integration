@@ -79,7 +79,9 @@ export function WalletCard({
         <Card padding="md">
             <div className="stack">
                 <div className="card-head">
-                    <Heading level={3}>{chain.label}</Heading>
+                    <Heading level={3}>
+                        {chain.label} <span className="muted">· {chain.accountKind}</span>
+                    </Heading>
                     <ProtectionBadge state={state} />
                 </div>
 

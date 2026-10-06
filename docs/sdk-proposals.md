@@ -189,3 +189,21 @@ config.watchtowerPollSeconds`, so every cycle is recorded.
 `lastCompletePollAt` on every complete cycle and throttle only the per-target lines. Add a test that a
 quiet watch stays `watching` across several stale windows. **If declined:** every integrator must find
 and set `heartbeatSeconds`, and the default configuration misreports.
+
+## 7. `Eip7702RecoveryAccount.register` keeps a finished attempt
+
+**Today.** Re-protecting a Sepolia account uninstalls and reinstalls the module, which wipes its
+storage, attempt included. The 7702 account's `register` rewrites the recovery owner and the veto
+config but leaves `l.attempt` alone. After an abort followed by a re-protect, `stateOf()` keeps
+answering `ABORTED`, about a key the account no longer honours, until the next `initiateRecovery`
+overwrites it. Found live: an abort at 13:03, Arbitrum re-registered by a new vault at 13:21, and the
+card still showing "Aborted".
+
+**What this repo does instead.** `settlement/timelock.ts#predatesRegistration`: a terminal attempt
+whose last checkpoint is older than the chain record's `addedAt` is treated as history, not as this
+vault's stage. A live attempt is never dismissed that way.
+
+**Proposed change.** Have `register` clear a terminal attempt (`EXECUTED` or `ABORTED`), or bump an
+`attemptSeq`-style generation that `stateOf()` compares against, so a fresh registration reads `NONE`
+like a fresh module install. **If declined:** every 7702 integrator needs this timestamp comparison,
+and a watcher reading `stateOf()` sees a stale terminal state after every re-protect.

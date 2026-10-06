@@ -44,8 +44,13 @@ export function App() {
     // instance — under whatever is using them.
     const bindings = useMemo(() => createAppBindings(), []);
     const chains = useMemo(() => bindings.chains.all(), [bindings]);
+    // Visible but not selectable: the chain module and its tests stay live, only the tab is inert.
+    // The reason is the tab's tooltip, not a flag here — see `COMING_SOON` in WalletSwitcher.tsx.
+    const disabledChainIds = useMemo(() => new Set(["zcash-testnet"]), []);
 
-    const [activeChainId, setActiveChainId] = useState(chains[0]!.id);
+    const [activeChainId, setActiveChainId] = useState(
+        () => chains.find((chain) => !disabledChainIds.has(chain.id))?.id ?? chains[0]!.id,
+    );
     // The seed book, not `env.mnemonic`. A recovery's aftermath needs somewhere to go, and that is
     // a different account — which in a single-seed wallet means a different seed.
     const [seeds, setSeeds] = useState(loadSeedBook);
@@ -222,6 +227,7 @@ export function App() {
                         <WalletSwitcher
                             chains={chains}
                             activeId={activeChainId}
+                            disabledIds={disabledChainIds}
                             vaultFor={flow.vaultFor}
                             walletId={walletId}
                             onSelect={setActiveChainId}

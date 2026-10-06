@@ -72,13 +72,22 @@ export function useAbort(bindings: AppBindings, seeds: SeedBook) {
                         });
                         continue;
                     }
+                    const chainRecord = {
+                        accountId: record.accountId,
+                        signerAddress: record.signerAddress,
+                        recoveryPubKeyHex: record.recoveryPubKeyHex,
+                    };
                     try {
+                        // Only where something is in flight. Abort on a chain with no attempt, or
+                        // one already aborted by an earlier press, reverts and reads as a failure.
+                        const problems = await handover.preflight({ chainRecord });
+                        if (!problems.some((problem) => problem.code === "attempt-in-flight")) {
+                            note(`abort      ${record.chainId} — nothing in flight`);
+                            results.push({ chainId: record.chainId, hash: null, failure: null });
+                            continue;
+                        }
                         const { hash } = await handover.abort({
-                            chainRecord: {
-                                accountId: record.accountId,
-                                signerAddress: record.signerAddress,
-                                recoveryPubKeyHex: record.recoveryPubKeyHex,
-                            },
+                            chainRecord,
                             serverUrl: bindings.env.serverUrl,
                             authorityPrivateKeyHex:
                                 account.signer.exportPrivateKeyHex_DEMO_ONLY(),
@@ -96,8 +105,13 @@ export function useAbort(bindings: AppBindings, seeds: SeedBook) {
                 // The rows are the only record of an intent, and an aborted attempt can never be
                 // executed — so keeping them would leave a Handover view offering a button that
                 // cannot work.
+                // Only for chains that are now clear. A chain whose abort failed still has a live
+                // attempt, and its row is the only record of it.
+                const clear = new Set(
+                    results.filter((row) => row.failure === null).map((row) => row.chainId),
+                );
                 for (const row of await bindings.handovers.forVault(vault.vaultId)) {
-                    await bindings.handovers.delete(row.id);
+                    if (clear.has(row.chainId)) await bindings.handovers.delete(row.id);
                 }
             } finally {
                 setRunning(false);

@@ -53,6 +53,7 @@ export function createArbitrumSepoliaChain(options: ArbitrumSepoliaChainOptions)
         id: ARBITRUM_SEPOLIA_ID,
         label: "Arbitrum",
         network: "Arbitrum Sepolia",
+        accountKind: "EIP-7702 account",
         icon: "arbitrum",
         // CAIP-2, pinned. An HKDF input — see `ChainModule.namespace`.
         namespace: `eip155:${ARBITRUM_SEPOLIA_CHAIN_ID}`,
@@ -72,7 +73,7 @@ export function createArbitrumSepoliaChain(options: ArbitrumSepoliaChainOptions)
                     // the address funds are sent to.
                     accountId: eoa,
                     address: eoa,
-                    label: "Account (7702)",
+                    label: "EIP-7702 account",
                     derivationPath: EVM_PATH,
                     index: 0,
                     signer: {

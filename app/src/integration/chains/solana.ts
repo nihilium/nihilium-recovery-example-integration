@@ -68,6 +68,9 @@ export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModul
         id: "solana-devnet",
         label: "Solana",
         network: "Devnet",
+        // Not Squads or any other multisig: Nihilium's own recovery vault program, which owns the
+        // vault account and is the only thing that can pay out of it.
+        accountKind: "Nihilium recovery vault",
         icon: "solana",
         // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
         // name — `solana:devnet` is not a chain id, it just looks like one, and it would have sealed
@@ -94,7 +97,7 @@ export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModul
                     // the lamports, `accountId` above is the identity the program acts on, and
                     // nothing can move value out of that one.
                     address: addresses.vaultSol.toBase58(),
-                    label: "Recovery vault",
+                    label: "Nihilium recovery vault",
                     // The key behind the account, as on EVM — where this column is the EOA's path
                     // and not the Safe's, because a Safe has no derivation path either.
                     derivationPath: SOLANA_PATH,

@@ -237,9 +237,13 @@ export function createSolanaHandover(config: SolanaHandoverConfig): ChainHandove
                 params.chainRecord.accountId,
             );
             params.onProgress?.(`abort      as ${authority.publicKey.toBase58()}`);
+            // The owner's key usually holds no SOL: the funds are in the vault. The relayer's fee
+            // payer co-signs for the fee only; without a server the owner pays, as before.
+            const via = await loadFeePayer(params.serverUrl);
             const hash = await abortRecovery(ctx, {
                 addresses,
                 abortAuthority: authority,
+                ...(via ? { via } : {}),
                 ...(params.onProgress ? { onProgress: params.onProgress } : {}),
             });
             return { hash };

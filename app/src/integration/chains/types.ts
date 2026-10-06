@@ -42,6 +42,12 @@ export interface ChainModule {
      * so the page can say *Ethereum* everywhere and name the testnet once, where networks are shown.
      */
     readonly network: string;
+    /**
+     * What recovery protects on this chain, as a user would name it: "Safe smart account",
+     * "EIP-7702 account". Display only, and said next to the chain name because the three chains
+     * protect three different kinds of account, and none of them is the same thing twice.
+     */
+    readonly accountKind: string;
     readonly icon: IconName;
 
     /**

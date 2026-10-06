@@ -160,6 +160,35 @@ describe("recovering every chain a vault covers", () => {
         result.wipe();
     });
 
+    it("recovers a chain that was re-keyed after sealing, to its new key", async () => {
+        // The bug this pins: protecting Solana re-keys the chain, and the append-only store keeps
+        // the superseded record. The SDK refuses two records for one account, so a vault sealed on
+        // Solana and then protected could not be recovered at all.
+        const dbName = `recover-all-${crypto.randomUUID()}`;
+        const { method, stores, vault } = await twoChainVault(dbName, "vault-rekeyed");
+        const rekeyed = await addChainToVault(stores, {
+            method,
+            vault,
+            chain: SOLANA,
+            account: SOLANA_ACCOUNT,
+            rekey: true,
+        });
+        expect(await stores.dataStore.getEntries(vault.recordId)).toHaveLength(3);
+
+        const result = await recoverAllChains(stores, {
+            method,
+            gate: rekeyed.gate,
+            selected: [1, 2],
+            vault: rekeyed,
+            chains: registryOf([EVM, SOLANA]),
+        });
+        expect(result.keys.map((key) => key.failure)).toEqual([null, null]);
+        const solana = result.keys.find((key) => key.chainId === "solana-devnet")!;
+        const current = rekeyed.chains.find((row) => row.chainId === "solana-devnet")!;
+        expect(solana.publicKeyHex).toBe(current.recoveryPubKeyHex);
+        result.wipe();
+    });
+
     it("derives each chain's key on that chain's own curve, and proves it against the seal", async () => {
         const dbName = `recover-all-${crypto.randomUUID()}`;
         const { method, stores, vault } = await twoChainVault(dbName, "vault-two-curves");

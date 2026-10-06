@@ -28,17 +28,56 @@ export function Tooltip({
     label,
     children,
     panel,
+    delay = 0,
+    as = "button",
 }: {
     /** What the trigger announces to a screen reader. The visible summary is usually not enough. */
     label: string;
-    /** The trigger — rendered inside the button. */
+    /** The trigger — rendered inside the button, unless `as="div"`. */
     children: ReactNode;
     panel: ReactNode;
+    /**
+     * Milliseconds the pointer must hold before the panel opens. Zero by default; a status line on a
+     * disabled control wants a hold, because a tooltip that fires on the way past is a flicker.
+     */
+    delay?: number;
+    /**
+     * `"button"` (default) renders the trigger button this component owns. `"div"` is for a caller
+     * that already renders its own control — a disabled tab, say — where a second button would nest
+     * invalidly; the wrapper carries the handlers instead, and the caller's control carries the name.
+     */
+    as?: "button" | "div";
 }) {
     const [open, setOpen] = useState(false);
     const id = useId();
-    const trigger = useRef<HTMLButtonElement>(null);
+    // The element the panel anchors to. The button branch never needs it — the wrapper span is the
+    // same box as its button — but `as="div"` uses `display: contents`, which has no box of its own,
+    // so the caller's control is named as the anchor instead.
+    const anchor = useRef<HTMLSpanElement>(null);
     const surface = useRef<HTMLSpanElement>(null);
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const cancel = () => {
+        if (timer.current !== null) {
+            clearTimeout(timer.current);
+            timer.current = null;
+        }
+    };
+    const schedule = () => {
+        cancel();
+        if (delay <= 0) {
+            setOpen(true);
+            return;
+        }
+        timer.current = setTimeout(() => {
+            timer.current = null;
+            setOpen(true);
+        }, delay);
+    };
+    // The wrapper span is the anchor and carries the handlers: `as="div"` gives its child
+    // `display: contents`, which has no box to measure, and a disabled control fires no pointer
+    // events of its own — which is exactly why the wrapper, not the control, must own them.
+    useEffect(() => cancel, []);
 
     useEffect(() => {
         if (!open) return;
@@ -55,9 +94,8 @@ export function Tooltip({
     // appears at the top-left corner for a frame on its way to the trigger.
     useLayoutEffect(() => {
         const element = surface.current;
-        const anchor = trigger.current;
-        if (!open || element === null || anchor === null) return;
-
+        const from = anchor.current ?? undefined;
+        if (!open || element === null || from === undefined) return;
         // Feature-detected rather than assumed. Without it the panel still renders and is still
         // positioned — it is only the clipping escape that is missing, which is a worse tooltip
         // rather than no tooltip.
@@ -71,13 +109,13 @@ export function Tooltip({
         }
 
         const place = () => {
-            const from = anchor.getBoundingClientRect();
             const box = element.getBoundingClientRect();
+            const at = from.getBoundingClientRect();
             // Above by preference, below when there is no room — a panel opening off the top of the
             // viewport is a panel nobody reads.
-            const above = from.top - box.height - GAP;
-            element.style.top = `${above >= GAP ? above : from.bottom + GAP}px`;
-            const centred = from.left + from.width / 2 - box.width / 2;
+            const above = at.top - box.height - GAP;
+            element.style.top = `${above >= GAP ? above : at.bottom + GAP}px`;
+            const centred = at.left + at.width / 2 - box.width / 2;
             const limit = window.innerWidth - box.width - GAP;
             element.style.left = `${Math.max(GAP, Math.min(centred, limit))}px`;
         };
@@ -102,23 +140,35 @@ export function Tooltip({
     return (
         <span
             className="tip"
-            onMouseEnter={() => setOpen(true)}
-            onMouseLeave={() => setOpen(false)}
+            ref={anchor}
+            onMouseEnter={schedule}
+            onMouseLeave={() => {
+                cancel();
+                setOpen(false);
+            }}
         >
-            <button
-                type="button"
-                ref={trigger}
-                className="tip__trigger"
-                aria-describedby={open ? id : undefined}
-                aria-expanded={open}
-                aria-label={label}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setOpen(false)}
-                // Tap opens it: on a touch screen there is no hover and no focus ring to rely on.
-                onClick={() => setOpen((was) => !was)}
-            >
-                {children}
-            </button>
+            {as === "div" ? (
+                <div className="tip__trigger tip__trigger--plain" aria-describedby={open ? id : undefined}>
+                    {children}
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    className="tip__trigger"
+                    aria-describedby={open ? id : undefined}
+                    aria-expanded={open}
+                    aria-label={label}
+                    onFocus={schedule}
+                    onBlur={() => {
+                        cancel();
+                        setOpen(false);
+                    }}
+                    // Tap opens it: on a touch screen there is no hover and no focus ring to rely on.
+                    onClick={() => setOpen((was) => !was)}
+                >
+                    {children}
+                </button>
+            )}
             {open && (
                 <span
                     className="tip__panel"

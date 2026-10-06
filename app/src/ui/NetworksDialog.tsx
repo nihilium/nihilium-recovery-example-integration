@@ -1,5 +1,5 @@
 /**
- * Which network each chain runs on, in one place.
+ * Which network each chain runs on, and what kind of account recovery protects there, in one place.
  *
  * The rest of the page names chains the way a user would — Ethereum, Solana, Zcash — so the testnet
  * each one talks to is said here, once, behind the "Public testnets" button, rather than repeated in
@@ -34,7 +34,9 @@ export function NetworksDialog({
                 {chains.map((chain) => (
                     <Fragment key={chain.id}>
                         <dt>{chain.label}</dt>
-                        <dd>{chain.network}</dd>
+                        <dd>
+                            {chain.network} · {chain.accountKind}
+                        </dd>
                     </Fragment>
                 ))}
             </dl>
