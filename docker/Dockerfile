@@ -19,7 +19,12 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE} AS sdk
 WORKDIR /src/recovery-sdk
 COPY recovery-sdk/ ./
-RUN npm ci --no-audit --no-fund \
+# The SDK's own postinstall runs `git submodule update`. There is no git here, nor a `.git` (the
+# context leaves it out), and the submodule's files are already in the copy above, so that one
+# script is removed from this copy before installing. `--ignore-scripts` is not the fix: it also
+# skips every dependency's install scripts, and `npm rebuild` would run the root's again.
+RUN npm pkg delete scripts.postinstall \
+ && npm ci --no-audit --no-fund \
  && npm run build
 # The on-chain bindings are separate projects with their own lockfiles. Only their TypeScript is
 # built here: the ABIs and IDL are committed, so neither Foundry nor Anchor is needed.
