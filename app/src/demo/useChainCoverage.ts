@@ -158,6 +158,7 @@ export async function readCoverage(
                         ? {
                               installed: onchain.value.installed,
                               matchesVault: onchain.value.matchesVault,
+                              ...(onchain.value.outdated ? { outdated: true } : {}),
                           }
                         : null,
                 onchainError:

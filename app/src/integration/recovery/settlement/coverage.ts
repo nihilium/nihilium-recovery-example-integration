@@ -51,7 +51,8 @@ export interface CoverageRow {
     /** True when the balance is the demo's own fiction rather than a chain's answer. Nothing to lose. */
     balanceSimulated?: boolean;
     /** What the chain holds. `null` when it was not read or could not be. */
-    onchain: { installed: boolean; matchesVault: boolean } | null;
+    /** `outdated`: protected by a superseded version of the settlement contract; offered as an update. */
+    onchain: { installed: boolean; matchesVault: boolean; outdated?: boolean } | null;
     onchainError: string | null;
 }
 
@@ -114,7 +115,7 @@ export function chainsToProtect(rows: readonly CoverageRow[]): {
             );
             continue;
         }
-        if (row.onchain.installed && row.onchain.matchesVault) {
+        if (row.onchain.installed && row.onchain.matchesVault && row.onchain.outdated !== true) {
             skip(row, "already protected", true);
             continue;
         }

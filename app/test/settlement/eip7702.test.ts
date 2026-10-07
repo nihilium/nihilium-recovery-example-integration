@@ -27,7 +27,7 @@ import { fromSolidityVetoConfig } from "../../src/integration/recovery/settlemen
 import { VETO } from "./vectors.js";
 
 const EOA = "0x7777777777777777777777777777777777777777" as Address;
-const IMPLEMENTATION = "0x2577F7c15EBf513b28379a29F98391BD3943cA76" as Address;
+const IMPLEMENTATION = "0xE64f4F8515B872aeEf99989eDFd12759caa0eD6f" as Address; // 2.0.0
 const OTHER_CODE = "0x63c4845489A4A6a2B5bFaBB2eE1cBa9A1a1F58B6" as Address;
 const NAMESPACE = "eip155:421614";
 
@@ -63,7 +63,9 @@ function reader(over: Partial<FakeState> = {}): Eip7702Reader & { digestsAsked: 
     const digestsAsked: string[] = [];
     const notDelegated = () => {
         // What a real node does: an undelegated EOA has no code, so the call returns nothing.
-        if (state.delegation.kind !== "ours") throw new Error("returned no data (0x)");
+        if (state.delegation.kind !== "ours" && state.delegation.kind !== "legacy") {
+            throw new Error("returned no data (0x)");
+        }
     };
     return {
         account: EOA,
@@ -139,6 +141,22 @@ describe("reading an EOA's delegation", () => {
         });
     });
 
+    it("recognises a superseded version of ours, and names it", () => {
+        const legacy = new Map([[getAddress(OTHER_CODE), "1.1.0"]]);
+        expect(parseDelegation(designator(OTHER_CODE), IMPLEMENTATION, legacy)).toEqual({
+            kind: "legacy",
+            version: "1.1.0",
+            target: getAddress(OTHER_CODE),
+        });
+    });
+
+    it("knows the SDK's own superseded deployments without being told", () => {
+        // v1.1.0 on Arbitrum Sepolia, from `legacyEip7702AccountAddresses`. Accounts protected before
+        // 2.0.0 shipped are delegated here, and must read as ours rather than as foreign code.
+        const v11 = "0x2577F7c15EBf513b28379a29F98391BD3943cA76";
+        expect(parseDelegation(designator(v11), IMPLEMENTATION)).toMatchObject({ kind: "legacy", version: "1.1.0" });
+    });
+
     it("treats real contract code as not an EOA at all", () => {
         expect(parseDelegation("0x6080604052", IMPLEMENTATION)).toEqual({ kind: "other", target: null });
     });
@@ -154,6 +172,13 @@ describe("before delegating", () => {
         const problems = await preflightProtect(reader({ acceptsValue: false }));
         expect(codes(problems)).toEqual(["implementation-cannot-receive"]);
         expect(problems[0]!.blocking).toBe(true);
+    });
+
+    it("lets an account on a superseded version upgrade, rather than refusing it as foreign", async () => {
+        const problems = await preflightProtect(
+            reader({ delegation: { kind: "legacy", version: "1.1.0", target: OTHER_CODE } }),
+        );
+        expect(problems).toEqual([]);
     });
 
     it("refuses to replace somebody else's delegation", async () => {
@@ -176,6 +201,13 @@ describe("before a recovery", () => {
         expect(codes(await preflightRecovery(reader({ delegation: { kind: "none" } }), params))).toEqual([
             "not-delegated",
         ]);
+    });
+
+    it("recovers an account still on a superseded version", async () => {
+        // It still honours its registration. Refusing it would strand every account whose owner
+        // lost their key before upgrading, which is exactly who recovery is for.
+        const legacy = reader({ delegation: { kind: "legacy", version: "1.1.0", target: OTHER_CODE } });
+        expect(await preflightRecovery(legacy, params)).toEqual([]);
     });
 
     it("stops at a delegated account with no key registered", async () => {

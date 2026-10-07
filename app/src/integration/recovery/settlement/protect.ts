@@ -57,6 +57,7 @@ import { predatesRegistration, type AttemptClock } from "./timelock.js";
 import { ARBITRUM_SEPOLIA_CHAIN_ID, ARBITRUM_SEPOLIA_ID } from "../../chains/arbitrumSepolia.js";
 import {
     createEip7702Reader,
+    isRecoveryAccount,
     readAttemptClock as read7702AttemptClock,
 } from "./eip7702/reads.js";
 import {
@@ -136,6 +137,12 @@ export interface OnChainState {
     epoch: number | null;
     /** Solana only: bumped by every registration, so a watch can tell a rotation happened. */
     configNonce: number | null;
+    /**
+     * Protected, but by a superseded version of the settlement contract. Arbitrum only, where an
+     * EOA stays on whatever 7702 implementation it last delegated to until its owner re-delegates.
+     * Protect all offers the upgrade instead of skipping the chain as already protected.
+     */
+    outdated?: boolean;
 }
 
 /** What "never protected" looks like where the protected account must be created first. */
@@ -196,7 +203,10 @@ async function read7702(deps: ProtectDeps, params: ReadProtectionParams): Promis
 
     // Delegated to anything else, including a superseded version of this contract, is not
     // protected by this build. Protecting refuses it with the reason; reading just says no.
-    if ((await reader.delegation()).kind !== "ours") return NOTHING;
+    // Someone else's code, or none, is not protected by this build. A superseded version of ours
+    // still is: it honours its registration, and protecting again upgrades it.
+    const delegation = await reader.delegation();
+    if (!isRecoveryAccount(delegation)) return NOTHING;
     if (!(await reader.isRegistered())) return NOTHING;
 
     const [config, attempt, clock] = await Promise.all([
@@ -219,6 +229,7 @@ async function read7702(deps: ProtectDeps, params: ReadProtectionParams): Promis
         intentHash: history || attempt.state === null ? null : attempt.intentHash,
         epoch: Number(config.epoch),
         configNonce: Number(config.configNonce),
+        outdated: delegation.kind === "legacy",
     };
 }
 

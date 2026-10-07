@@ -72,6 +72,16 @@ describe("chains that get skipped, and why", () => {
         expect(skipped[0]!.reason).toContain("still on the old guardians");
     });
 
+    it("offers an update for a chain protected by a superseded contract version", () => {
+        // Arbitrum's 7702 account stays on whatever implementation it last delegated to. Holding
+        // the right key on old code is protected, but not finished: Protect all should upgrade it.
+        const { targets, skipped } = chainsToProtect([
+            row({ onchain: { installed: true, matchesVault: true, outdated: true } }),
+        ]);
+        expect(skipped).toEqual([]);
+        expect(targets[0]!.action).toBe("update");
+    });
+
     it("skips a chain that already holds this vault's key", () => {
         const { skipped } = chainsToProtect([
             row({ onchain: { installed: true, matchesVault: true } }),

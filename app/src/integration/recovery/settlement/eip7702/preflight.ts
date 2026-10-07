@@ -7,7 +7,8 @@
  *   authorization must be signed by the EOA's own key, so an owner who has lost it can never
  *   re-point the code. So the two ways a delegation goes wrong are refused here, before it is
  *   signed: code that cannot receive ETH, which would make the account spend-only for good, and an
- *   EOA already delegated to somebody else's wallet code, which this would silently replace.
+ *   EOA already delegated to somebody else's wallet code, which this would silently replace. An
+ *   EOA on a *superseded version of ours* is not refused: re-delegating it is the upgrade.
  * - **Before a recovery.** The same shape as `../evm/preflight.ts`: not protected, protected by a
  *   different vault, an attempt already running, or an intent that would expire before its timelock.
  *   Each is otherwise discovered after the ceremony, as a revert.
@@ -20,7 +21,7 @@ import { getAddress, type Address } from "viem";
 import { toEvmAddress } from "@nihilium/recovery-key-evm";
 import { isTerminal } from "../evm/reads.js";
 import { MIN_EXPIRY_MARGIN_SECONDS, type PreflightProblem } from "../evm/preflight.js";
-import type { Eip7702Reader } from "./reads.js";
+import { isRecoveryAccount, type Eip7702Reader } from "./reads.js";
 
 export type Eip7702PreflightCode =
     | "implementation-cannot-receive"
@@ -74,7 +75,8 @@ export async function preflightRecovery(
     params: RecoveryPreflightParams,
 ): Promise<Eip7702Problem[]> {
     const delegation = await reader.delegation();
-    if (delegation.kind !== "ours") {
+    // A superseded version still honours its registration, so it can still be recovered.
+    if (!isRecoveryAccount(delegation)) {
         // Nothing else can be read: an undelegated EOA has no code to answer.
         return [
             {
@@ -135,7 +137,7 @@ export async function isProtectedByVault(
     reader: Eip7702Reader,
     expectedRecoveryPubKeyHex: string,
 ): Promise<boolean> {
-    if ((await reader.delegation()).kind !== "ours") return false;
+    if (!isRecoveryAccount(await reader.delegation())) return false;
     if (!(await reader.isRegistered())) return false;
     const config = await reader.configOf();
     return getAddress(config.recoveryOwner) === recoveryOwnerAddress(expectedRecoveryPubKeyHex);

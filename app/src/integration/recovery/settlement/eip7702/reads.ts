@@ -11,6 +11,10 @@
  * `hashExecute` are reads. The domain includes `version()`, which moved from 1.0.0 to 1.1.0 when
  * `receive()` was added, and a hand-built digest would have gone on signing for the old one.
  *
+ * **Superseded versions are still ours.** An account delegated to an older implementation keeps
+ * working, and its views are the same, so every read here works against it. `delegation()` says
+ * which version it is, so a caller can offer the upgrade.
+ *
  * **To replace:** the viem implementation, if your app holds a client already. **Assumes:** callers
  * check `delegation()` before anything else. On an undelegated EOA every other read returns empty
  * bytes and fails to decode, which is not the same as "not registered".
@@ -22,7 +26,10 @@ import {
     type Hex,
     type PublicClient,
 } from "viem";
-import { eip7702RecoveryAccountAbi } from "@nihilium/recovery-onchain-evm";
+import {
+    eip7702RecoveryAccountAbi,
+    legacyEip7702AccountAddresses,
+} from "@nihilium/recovery-onchain-evm";
 import type { VetoConfig, VetoState } from "@nihilium/recovery-core";
 import { toVetoState, type AttemptClockRead, type AttemptSnapshot } from "../evm/reads.js";
 import { fromSolidityVetoConfig, type SolidityVetoConfig } from "../evm/vetoConfig.js";
@@ -65,18 +72,33 @@ export interface Eip7702Config {
 /**
  * What the EOA's code says it is.
  *
- * `other` covers an EOA delegated to someone else's wallet code, and an EOA delegated to a
- * superseded version of this one. Both would be silently replaced by a delegation here.
+ * - `ours`: the implementation the SDK currently names.
+ * - `legacy`: a superseded version of it, from `legacyEip7702AccountAddresses`. Still a working
+ *   recovery account, and re-delegating to the current one is an upgrade: every version keeps its
+ *   state in the same ERC-7201 slot with the same field order, so the registration carries over.
+ * - `other`: somebody else's wallet code, which a delegation here would silently replace.
  */
 export type Delegation =
     | { kind: "none" }
     | { kind: "ours" }
+    | { kind: "legacy"; version: string; target: Address }
     | { kind: "other"; target: Address | null };
 
 /** EIP-7702's delegation designator: `0xef0100` followed by the 20-byte target. */
 const DESIGNATOR_PREFIX = "0xef0100";
 
-export function parseDelegation(code: Hex | undefined, implementation: Address): Delegation {
+/** Every superseded implementation, by address. Addresses are per deployment, so chains cannot collide. */
+const LEGACY: ReadonlyMap<string, string> = new Map(
+    Object.entries(legacyEip7702AccountAddresses).flatMap(([version, byChain]) =>
+        Object.values(byChain).map((address) => [getAddress(address), version] as const),
+    ),
+);
+
+export function parseDelegation(
+    code: Hex | undefined,
+    implementation: Address,
+    legacy: ReadonlyMap<string, string> = LEGACY,
+): Delegation {
     if (code === undefined || code === "0x") return { kind: "none" };
     const lower = code.toLowerCase();
     if (!lower.startsWith(DESIGNATOR_PREFIX) || lower.length !== DESIGNATOR_PREFIX.length + 40) {
@@ -84,7 +106,14 @@ export function parseDelegation(code: Hex | undefined, implementation: Address):
         return { kind: "other", target: null };
     }
     const target = getAddress(`0x${lower.slice(DESIGNATOR_PREFIX.length)}`);
-    return target === getAddress(implementation) ? { kind: "ours" } : { kind: "other", target };
+    if (target === getAddress(implementation)) return { kind: "ours" };
+    const version = legacy.get(target);
+    return version !== undefined ? { kind: "legacy", version, target } : { kind: "other", target };
+}
+
+/** Delegated to any version of the recovery account, current or superseded: its state is readable. */
+export function isRecoveryAccount(delegation: Delegation): boolean {
+    return delegation.kind === "ours" || delegation.kind === "legacy";
 }
 
 export interface Eip7702Reader {

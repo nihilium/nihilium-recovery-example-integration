@@ -96,7 +96,14 @@ export function openEip7702Session(config: Eip7702ProtectConfig): Eip7702Session
             if (refusal !== undefined) throw new Error(refusal.message);
 
             let delegationTx: Hex | null = null;
-            if ((await reader.delegation()).kind === "none") {
+            const delegation = await reader.delegation();
+            // A superseded version of ours is re-delegated: that is the upgrade. Every version keeps
+            // its state in the same ERC-7201 slot with the same field order, so the registration and
+            // its nonces carry over, and `register` below rotates the key on the new code.
+            if (delegation.kind === "legacy") {
+                note(`upgrade    v${delegation.version} (${delegation.target}) -> ${config.implementation}`);
+            }
+            if (delegation.kind === "none" || delegation.kind === "legacy") {
                 // `executor: "self"`: the sender is the authority, so the authorization must carry
                 // the nonce *after* this transaction's own. viem does that arithmetic.
                 const authorization = await wallet.signAuthorization({

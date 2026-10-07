@@ -20,6 +20,7 @@ import {
 } from "../integration/chains/arbitrumSepolia.js";
 import {
     createEip7702Reader,
+    isRecoveryAccount,
     readAttemptClock as read7702AttemptClock,
 } from "../integration/recovery/settlement/eip7702/reads.js";
 import type { VetoState } from "@nihilium/recovery-core";
@@ -215,7 +216,7 @@ async function readOne(
                 chain.namespace,
             );
             // Not delegated, or delegated and never registered: nothing is counting.
-            if ((await reader.delegation()).kind !== "ours" || !(await reader.isRegistered())) {
+            if (!isRecoveryAccount(await reader.delegation()) || !(await reader.isRegistered())) {
                 return { ...base, projected: null, clock: null, unreadable: null };
             }
             const read = await read7702AttemptClock(reader);
