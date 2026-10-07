@@ -1,0 +1,31 @@
+# Applies to docker/Dockerfile only (BuildKit reads `<Dockerfile>.dockerignore`), so it never
+# collides with another repo's .dockerignore at the shared context root.
+#
+# The context is the parent directory; everything in it is excluded except the two checkouts.
+*
+!nihilium-recovery-example-integration
+!recovery-sdk
+
+**/.git
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/coverage
+
+# Never bake keys or local state into an image. The app's `.env.production.local` is the one env
+# file let through, because the build reads it.
+**/.env
+**/.env.local
+**/.env.development*
+!nihilium-recovery-example-integration/app/.env.production.local
+nihilium-recovery-example-integration/server/.data
+nihilium-recovery-example-integration/**/logs
+
+# Contract toolchains and artifacts the bindings build does not need.
+recovery-sdk/onchain/evm/lib
+recovery-sdk/onchain/evm/out
+recovery-sdk/onchain/evm/cache
+recovery-sdk/onchain/evm/broadcast
+recovery-sdk/onchain/solana/target
+recovery-sdk/onchain/solana/.anchor
+recovery-sdk/apps
