@@ -28,8 +28,16 @@ RUN npm pkg delete scripts.postinstall \
  && npm run build
 # The on-chain bindings are separate projects with their own lockfiles. Only their TypeScript is
 # built here: the ABIs and IDL are committed, so neither Foundry nor Anchor is needed.
-RUN cd onchain/evm && npm ci --no-audit --no-fund && npx tsc -b \
- && cd ../solana && npm ci --no-audit --no-fund && npx tsc -p tsconfig.bindings.json
+#
+# Both compile with the SDK root's TypeScript and @types/node, and install as little as possible:
+# - EVM installs nothing. Its only dependency is a Solidity library set pulled over git+ssh, which
+#   the TypeScript bindings never import.
+# - Solana installs its three runtime dependencies only (@solana/web3.js, @noble/hashes,
+#   tweetnacl), without its lockfile: that lockfile is out of sync with its package.json
+#   (@types/bn.js missing), so `npm ci` refuses it. An SDK fix; until then, ranges resolve.
+RUN cd onchain/evm && node ../../node_modules/typescript/bin/tsc -b \
+ && cd ../solana && npm install --omit=dev --no-package-lock --no-audit --no-fund \
+ && node ../../node_modules/typescript/bin/tsc -p tsconfig.bindings.json
 
 # ── 2. This repo's dependencies ──────────────────────────────────────────────────────────────
 FROM sdk AS deps

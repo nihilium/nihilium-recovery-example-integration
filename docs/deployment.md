@@ -49,7 +49,9 @@ SOLANA_RPC_URL=https://api.devnet.solana.com
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
 ```
 
-`PORT`, `RECORDS_DIR` and `WATCHES_DIR` are set by the image. Don't override them.
+`PORT`, `RECORDS_DIR` and `WATCHES_DIR` are pinned by the deploy (`-e`, which wins over the env
+file), so a copy of a local `server/.env` that sets them to `./.data/...` cannot move the state
+out of the mounted volume.
 
 **`ROLE_MNEMONIC` decides every role address.** Reusing the phrase from a local `server/.env` keeps
 the relayer's existing balances, and keeps the attester that `VITE_MODULE_ATTESTER` names. A new
