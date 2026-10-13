@@ -3,7 +3,7 @@
  * assumed one would be a component that special-cases Zcash later.
  */
 import type { Balance, ChainModule, DerivedAccount } from "../integration/chains/types.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { useState } from "react";
 import { formatAmount } from "../integration/chains/amounts.js";
 import { useBalances } from "../demo/useBalances.js";

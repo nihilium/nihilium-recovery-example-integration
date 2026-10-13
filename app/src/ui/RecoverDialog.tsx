@@ -23,7 +23,7 @@
  * Solana as its new owner. See `demo/destinations.ts`.
  */
 import { Fragment, useEffect, useState } from "react";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import type {
     MethodRegistry,
     StoredSubject,
@@ -32,7 +32,7 @@ import type {
 import {
     canHandOverAny,
     type ChainReadiness,
-} from "../integration/recovery/handover/preflight.js";
+} from "@nihilium/recovery-sdk";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, StatusMessage } from "./ds.js";
 import type { FeeEstimator } from "../demo/useFeeEstimate.js";
@@ -45,7 +45,7 @@ import { RecoveryVaultPicker } from "./RecoveryVaultPicker.js";
 import { PassportScan } from "./PassportScan.js";
 import { destinationFor, eligibleOwners, type Destination } from "../demo/destinations.js";
 import { seedFingerprint, type SeedBook, type SeedEntry } from "../demo/seeds.js";
-import type { CachedRecovery, RecoveryCatalogue } from "../integration/recovery/recoveryCatalogue.js";
+import type { CachedRecovery, RecoveryCatalogue } from "@nihilium/recovery-sdk";
 
 export interface RecoveryTarget {
     kind: "derived" | "pasted";
@@ -451,7 +451,7 @@ export function RecoverDialog({
                     <>
                         <RecoveredKeys
                             keys={state.result.keys}
-                            ceremonies={state.result.ceremonies}
+                            chainLabels={chainLabels}
                             contacted={state.result.contacted}
                             untouched={state.result.untouched}
                         />

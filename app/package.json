@@ -23,7 +23,12 @@
         "@nihilium/recovery-nihilium": "file:../../recovery-sdk/packages/nihilium",
         "@nihilium/recovery-onchain-evm": "file:../../recovery-sdk/onchain/evm",
         "@nihilium/recovery-onchain-solana": "file:../../recovery-sdk/onchain/solana",
+        "@nihilium/recovery-passport-zkpassport": "file:../../recovery-sdk/packages/adapters/passport-zkpassport",
         "@nihilium/recovery-resolver-dkim": "file:../../recovery-sdk/packages/adapters/resolver-dkim",
+        "@nihilium/recovery-sdk": "file:../../recovery-sdk/packages/sdk",
+        "@nihilium/recovery-settlement-evm": "file:../../recovery-sdk/packages/adapters/settlement-evm",
+        "@nihilium/recovery-settlement-solana": "file:../../recovery-sdk/packages/adapters/settlement-solana",
+        "@nihilium/recovery-storage-indexeddb": "file:../../recovery-sdk/packages/adapters/storage-indexeddb",
         "@nihilium/recovery-veto": "file:../../recovery-sdk/packages/veto",
         "@nihilium/recovery-watchtower-evm": "file:../../recovery-sdk/packages/adapters/watchtower-evm",
         "@nihilium/recovery-watchtower-solana": "file:../../recovery-sdk/packages/adapters/watchtower-solana",
@@ -39,7 +44,7 @@
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
         "react-qr-code": "^2.0.15",
-        "viem": "^2.56.7"
+        "viem": "^2.57.4"
     },
     "devDependencies": {
         "@types/node": "^22.20.3",

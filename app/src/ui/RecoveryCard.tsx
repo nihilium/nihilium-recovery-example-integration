@@ -26,11 +26,12 @@ import type { VetoState } from "@nihilium/recovery-core";
 import {
     timelockLabel,
     type AttemptClock,
-} from "../integration/recovery/settlement/timelock.js";
+} from "../demo/timelock.js";
 import type { DerivedAccount } from "../integration/chains/types.js";
 import type { GateDescription, MethodRegistry } from "../integration/conditions/types.js";
-import type { ProtectTarget } from "../integration/recovery/settlement/coverage.js";
-import { displayRecordId, type VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { ProtectTarget } from "@nihilium/recovery-sdk";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
+import { formatRecordId } from "@nihilium/recovery-core";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
 import { Button, Card, Heading, StatusMessage } from "./ds.js";
 import { AddressChip } from "./AddressChip.js";
@@ -376,7 +377,7 @@ function SealedBody({
 
                 <div className="row">
                     <span className="field__label">Recovery id</span>
-                    <AddressChip value={vault.recordId} display={displayRecordId(vault)} />
+                    <AddressChip value={vault.recordId} display={formatRecordId(vault.recordId)} />
                 </div>
 
                 <div className="card-foot">

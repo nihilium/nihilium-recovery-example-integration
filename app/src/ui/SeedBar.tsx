@@ -17,10 +17,15 @@ import {
     type SeedBook,
     type SeedEntry,
 } from "../demo/seeds.js";
-import {
-    SEED_RECOVERY_LABEL,
-    type SeedRecovery,
-} from "../integration/recovery/recoveryCatalogue.js";
+import type { SeedRecovery, SeedRecoveryState } from "@nihilium/recovery-sdk";
+
+/** What each answer reads as on a seed's row. Copy, so it lives with the UI rather than the SDK. */
+const SEED_RECOVERY_LABEL: Record<SeedRecoveryState, string> = {
+    none: "no recovery",
+    ready: "recovery ready",
+    "no-seal": "recovery — no seal here",
+    spent: "recovered from · set up again",
+};
 import { SecretPhrase } from "./SecretPhrase.js";
 import { Button, StatusMessage, TextInput } from "./ds.js";
 import { Notice } from "./Notice.js";

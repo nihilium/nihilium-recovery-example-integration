@@ -7,7 +7,7 @@ path, and cannot act. It notices, and it says so to whoever asks.
 | | file |
 |---|---|
 | the role, on the server | [`server/src/roles/watchtower/index.ts`](../server/src/roles/watchtower/index.ts) |
-| registration and status, copyable | [`app/src/integration/recovery/watch.ts`](../app/src/integration/recovery/watch.ts) |
+| registration and status | `buildVaultWatch`, `syncVaultWatch`, `watchView` in `@nihilium/recovery-sdk` |
 | the demo's wiring | [`app/src/demo/useWatchtower.ts`](../app/src/demo/useWatchtower.ts) |
 
 ## Two planes, and why the first one matters most

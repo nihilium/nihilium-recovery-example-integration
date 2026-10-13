@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { PROTECTION_LABELS, protectionOf, type OnChainProtection } from "../src/ui/protection.js";
-import type { VaultRecord } from "../src/integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 
 const CHAIN = "evm-sepolia";
 

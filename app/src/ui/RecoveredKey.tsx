@@ -19,19 +19,18 @@
  * a vault that never held it.
  */
 import { useState } from "react";
-import type { RecoveredChainKey } from "../integration/recovery/recoverAll.js";
+import type { RecoveredChainKey } from "@nihilium/recovery-sdk";
 import { AddressChip } from "./AddressChip.js";
 import { Heading, StatusMessage } from "./ds.js";
 
 export function RecoveredKeys({
     keys,
-    ceremonies,
+    chainLabels,
     contacted,
     untouched,
 }: {
     keys: readonly RecoveredChainKey[];
-    /** How many rounds of guardian email this cost. One, for any number of chains. */
-    ceremonies: number;
+    chainLabels: Readonly<Record<string, string>>;
     contacted: readonly number[];
     untouched: readonly number[];
 }) {
@@ -44,14 +43,13 @@ export function RecoveredKeys({
                 guardians were asked once for the whole vault — is the lesson this screen teaches,
                 not a fact about this run, and `docs/` is where it belongs. */}
             <StatusMessage tone="success">
-                {opened.length} chain{opened.length === 1 ? "" : "s"} recovered from {ceremonies}{" "}
-                ceremon{ceremonies === 1 ? "y" : "ies"}.
+                {opened.length} chain{opened.length === 1 ? "" : "s"} recovered from one ceremony.
             </StatusMessage>
 
             {/* A failure is status, not evidence, so it stays out of the fold: hidden behind a click
                 it would read as a vault that never covered that chain. */}
             {failed.map((key) => (
-                <ChainKey key={key.chainId} entry={key} />
+                <ChainKey key={key.chainId} entry={key} label={chainLabels[key.chainId] ?? key.chainId} />
             ))}
 
             {/* Closed by default: the count above is the result, and what follows is the evidence
@@ -64,7 +62,7 @@ export function RecoveredKeys({
                 </summary>
                 <div className="stack">
                     {opened.map((key) => (
-                        <ChainKey key={key.chainId} entry={key} />
+                        <ChainKey key={key.chainId} entry={key} label={chainLabels[key.chainId] ?? key.chainId} />
                     ))}
 
                     <dl className="rows">
@@ -80,13 +78,13 @@ export function RecoveredKeys({
     );
 }
 
-function ChainKey({ entry }: { entry: RecoveredChainKey }) {
+function ChainKey({ entry, label }: { entry: RecoveredChainKey; label: string }) {
     const [revealed, setRevealed] = useState(false);
 
     if (entry.failure !== null) {
         return (
             <div className="stack">
-                <Heading level={4}>{entry.chainLabel}</Heading>
+                <Heading level={4}>{label}</Heading>
                 {/* A row, not an omission. A chain quietly missing from this list would read as a
                     vault that never covered it — and the fix for that is a second paid ceremony. */}
                 <StatusMessage tone="error">{entry.failure}</StatusMessage>
@@ -94,10 +92,11 @@ function ChainKey({ entry }: { entry: RecoveredChainKey }) {
         );
     }
 
-    const material = entry.material;
+    // The bytes, in `rawKey` mode; a capability keeps them to itself and shows as dropped.
+    const material = entry.authority?.kind === "rawKey" ? entry.authority.material : null;
     return (
         <div className="stack">
-            <Heading level={4}>{entry.chainLabel}</Heading>
+            <Heading level={4}>{label}</Heading>
             <dl className="rows">
                 <dt>algorithm</dt>
                 <dd>{entry.chainRecord.algorithm}</dd>
@@ -133,9 +132,9 @@ function ChainKey({ entry }: { entry: RecoveredChainKey }) {
                 </dd>
 
                 <dt>matches</dt>
-                {/* `assertRecoveredKeyMatches` throws before a mismatch could reach here, so this is
-                    always a tick — and it is rendered because a wrong epoch is the one failure
-                    nothing else in the stack can detect, and silence about it would be worse. */}
+                {/* The SDK's `expectedRecoveryPubKey` check turns a mismatch into a failure row
+                    before it could reach here, so this is always a tick — and it is rendered because
+                    a wrong epoch is the one failure nothing else in the stack can detect. */}
                 <dd className="rows__prose">✓ the key this vault registered</dd>
             </dl>
         </div>

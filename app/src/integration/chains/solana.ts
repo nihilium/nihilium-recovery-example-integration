@@ -1,211 +1,180 @@
 /**
  * Solana devnet — and the chain where "protect this wallet" is not a thing that can be done.
  *
- * **A Solana keypair's address *is* its public key.** There is no EIP-7702 analogue, no code to
- * install at an existing address, and therefore no way to retrofit recovery onto one: a lost key is
- * a permanently lost address. What recovery protects is a **program-owned vault**, created in
- * advance, and only what is inside it. A wallet already holding funds at a plain address has to move
- * them; nothing rescues the address itself.
+ * **A Solana keypair's address *is* its public key.** There is no code to install at an existing
+ * address, so a lost key is a permanently lost address. What recovery protects is a
+ * **program-owned vault**, created in advance, and only what is inside it. This module returns the
+ * keypair as the **creator/owner** — the thing that signs and cannot be recovered — and the vault PDA
+ * as `accountId`, derived from the seed alone, counterfactually, exactly like the EVM smart account.
  *
- * So this module returns the keypair as the **creator/owner** — the thing that signs, pays, and
- * cannot be recovered. The protected account is a vault PDA, which does not exist until
- * `create_vault` runs and whose address depends on the SDK's vault id, so it is derived in
- * `settlement/solana/addresses.ts` rather than here. Before a vault exists there is genuinely no
- * protected account to show, and showing one would be the lie.
+ * The SDK's adapter creates the vault, registers the guardian with the incoming key's signature,
+ * relays intents and moves lamports. This file supplies the owner keypair wrapped in
+ * `solanaOwnerExecutor`, with the relayer as fee payer so the owner never needs SOL.
  *
- * **To replace:** `send`'s vault lookup, if your wallet tracks the vault elsewhere. The program is
- * live on devnet at `DaLebS3k5gD1k42uGU6LPnSP9qTNwYxaKqLQBb7BqgkG`.
- * **Assumes:** the namespace comes from `SOLANA_NAMESPACE` and never from a literal — every recovery
- * key derived for this chain depends on it byte for byte, and `solana:devnet` is not a chain id.
+ * **To replace:** the key handling. **Assumes:** the namespace comes from `SOLANA_NAMESPACE` and
+ * never from a literal — `solana:devnet` is not a chain id, and this is a KDF input.
  */
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import type { AccountExecutor, HttpRelaySubmitter } from "@nihilium/recovery-core";
 import { SOLANA_NAMESPACE, SolanaKeyAdapter, toSolanaAddress } from "@nihilium/recovery-key-solana";
-import { Connection, PublicKey } from "@solana/web3.js";
+import {
+    SolanaRecoveryVaultSettlement,
+    programIdFor,
+    solanaOwnerExecutor,
+    solanaVaultAddresses,
+} from "@nihilium/recovery-settlement-solana";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { base58 } from "@scure/base";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import { deriveEd25519 } from "@nihilium-demo/keys";
 import { SOLANA_PATH } from "../keys/paths.js";
-import type {
-    Balance,
-    ChainModule,
-    DerivedAccount,
-    ExplorerRef,
-    SendReceipt,
-} from "./types.js";
-import { solanaVaultAddresses } from "../recovery/settlement/solana/addresses.js";
-import { createVaultProgram, keypairFromSecret } from "../recovery/settlement/solana/program.js";
-import { executeTransfer } from "../recovery/settlement/solana/vault.js";
-import { loadFeePayer } from "../recovery/settlement/solana/submit.js";
+import type { Balance, ChainModule, DerivedAccount, ExplorerRef, SendReceipt } from "./types.js";
+
+export const SOLANA_DEVNET_ID = "solana-devnet";
 
 /**
- * Nothing is held back from a Solana send.
+ * The program's 16-byte vault seed, as this demo has always derived it — **not** the SDK's default.
  *
- * The fee comes from the relayer, not from the vault — so unlike the EVM smart account, which funds
- * its own prefund out of the balance being sent, the protected balance here is fully sendable. The
- * reserve is zero and says so rather than being a magic number nobody can explain.
+ * The PDA is the account, and this constant is part of its address: changing it would move every
+ * vault this demo ever created. The SDK's `DEFAULT_VAULT_SEED` is a different constant for a fresh
+ * integration; a wallet keeps whichever it started with. The server passes the same bytes.
  */
+export const DEMO_VAULT_SEED: Uint8Array = sha256(new TextEncoder().encode("nihilium-recovery-demo:vault:v1")).slice(0, 16);
+
+/** Nothing is held back from a Solana send: the relayer pays the fee, so the vault's whole balance is sendable. */
 const NO_RESERVE = 0n;
 
 export interface SolanaChainOptions {
-    /** A devnet RPC. Queried for real — there are no simulated balances on this chain any more. */
     rpcUrl: string;
-    /**
-     * Where the fee payer lives, so a send costs the owner key nothing.
-     *
-     * Without it the owner pays its own fee, and the owner is the account this demo deliberately
-     * never funds — which surfaces as Solana's rawest error, "attempt to debit an account but found
-     * no record of a prior credit", from a wallet whose vault is full.
-     */
-    serverUrl?: string;
+    relay: HttpRelaySubmitter;
+}
+
+/** SLIP-0010 yields the 32-byte seed; `fromSeed` expands it to the 64-byte secret key web3.js wants. */
+export function keypairFromSecret(hex: string): Keypair {
+    return Keypair.fromSeed(hexToBytes(hex.startsWith("0x") ? hex.slice(2) : hex));
 }
 
 export function createSolanaDevnetChain(options: SolanaChainOptions): ChainModule {
-    // `confirmed` rather than `finalized`: a demo that waits ~13s per read to show a balance reads
-    // as broken, and a balance is not a thing worth waiting for finality over.
+    // `confirmed` rather than `finalized`: a balance is not a thing worth waiting for finality over.
     const connection = new Connection(options.rpcUrl, "confirmed");
+    const namespace = SOLANA_NAMESPACE.devnet;
+    const programId = programIdFor("devnet");
+    const settlement = new SolanaRecoveryVaultSettlement({ cluster: "devnet", connection, submitter: options.relay, vaultSeed: DEMO_VAULT_SEED });
+    const addressesFor = (creator: string) => solanaVaultAddresses({ programId, creator: new PublicKey(creator), vaultSeed: DEMO_VAULT_SEED });
+
+    /**
+     * The owner keypair as the SDK drives it, with the relayer co-signing fees when the server offers
+     * one. `null` from `config()` means a server started without Solana: the owner pays, and the
+     * transcript says so, rather than the demo quietly needing SOL it never funded.
+     */
+    const executorFor = async (owner: Keypair): Promise<AccountExecutor> => {
+        const published = await options.relay.config(namespace).catch(() => null);
+        return solanaOwnerExecutor({
+            connection,
+            owner,
+            namespace,
+            ...(published === null ? {} : { feePayer: { submitter: options.relay, relayer: published.relayer } }),
+        });
+    };
 
     return {
-        id: "solana-devnet",
+        id: SOLANA_DEVNET_ID,
         label: "Solana",
         network: "Devnet",
-        // Not Squads or any other multisig: Nihilium's own recovery vault program, which owns the
-        // vault account and is the only thing that can pay out of it.
         accountKind: "Nihilium recovery vault",
         icon: "solana",
-        // Never hand-written. CAIP-2 for Solana is the truncated genesis hash, not the cluster
-        // name — `solana:devnet` is not a chain id, it just looks like one, and it would have sealed
-        // perfectly happily. The namespace is a KDF input, so a wrong value is not a bug that gets
-        // fixed later: it is a vault whose keys nothing on that chain will ever accept.
-        namespace: SOLANA_NAMESPACE.devnet,
+        namespace,
         tier: "smart-account",
         keyAdapter: new SolanaKeyAdapter(),
+        settlement,
 
         async deriveAccounts(seed: Uint8Array): Promise<DerivedAccount[]> {
             const key = deriveEd25519(seed, SOLANA_PATH);
             const owner = toSolanaAddress(key.publicKey);
-            // Derivable from the seed alone, and counterfactual exactly like the EVM smart account:
-            // the address exists as an answer long before `create_vault` puts anything at it. That
-            // only became true once the PDA seed stopped depending on which gate guards the vault —
-            // before that this had to wait for a ledger row, and the card had nothing to show.
-            const addresses = solanaVaultAddresses({ cluster: "devnet", creator: owner });
-            return [
-                {
-                    // The vault, not the key. `ChainContext.accountId` is what recovery binds, and
-                    // a keypair's address is its public key — unrecoverable by construction.
-                    accountId: addresses.vault.toBase58(),
-                    // What the user sees and sends to. The vault is two accounts: this one holds
-                    // the lamports, `accountId` above is the identity the program acts on, and
-                    // nothing can move value out of that one.
-                    address: addresses.vaultSol.toBase58(),
-                    label: "Nihilium recovery vault",
-                    // The key behind the account, as on EVM — where this column is the EOA's path
-                    // and not the Safe's, because a Safe has no derivation path either.
-                    derivationPath: SOLANA_PATH,
-                    index: 0,
-                    signer: {
-                        address: owner,
-                        publicKey: key.publicKey,
-                        async sign(payload: Uint8Array) {
-                            // ed25519 signs the message, not a digest — the opposite of the EVM
-                            // adapter, and the reason `sign` is per-chain rather than shared.
-                            return {
-                                algorithm: "ed25519" as const,
-                                bytes: ed25519.sign(payload, key.privateKey),
-                            };
-                        },
-                        exportPrivateKeyHex_DEMO_ONLY: () => `0x${bytesToHex(key.privateKey)}`,
+            const keypair = keypairFromSecret(bytesToHex(key.privateKey));
+            const addresses = addressesFor(owner);
+            const executor = () => executorFor(keypair);
+            return [{
+                // The vault, not the key. `ChainContext.accountId` is what recovery binds.
+                accountId: addresses.vault.toBase58(),
+                // What the user sees and sends to: the PDA holding the lamports.
+                address: addresses.vaultSol.toBase58(),
+                label: "Nihilium recovery vault",
+                derivationPath: SOLANA_PATH,
+                index: 0,
+                signer: {
+                    address: owner,
+                    publicKey: key.publicKey,
+                    async sign(payload: Uint8Array) {
+                        // ed25519 signs the message, not a digest — the opposite of the EVM adapter.
+                        return { algorithm: "ed25519" as const, bytes: ed25519.sign(payload, key.privateKey) };
                     },
+                    executor,
+                    keyExecutor: executor,
+                    exportPrivateKeyHex_DEMO_ONLY: () => `0x${bytesToHex(key.privateKey)}`,
                 },
-            ];
+            }];
         },
 
         isValidAddress(value) {
-            // Decoded, not pattern-matched: base58 has no fixed length and the alphabet excludes
-            // characters a regex would have to enumerate. 32 bytes is what an address is.
             try {
                 return base58.decode(value.trim()).length === 32;
             } catch {
                 return false;
             }
         },
-
-        // A Solana address *is* its public key, so this is an encoding rather than a hash — and
-        // exactly why a lost key here is a lost address, which is what the vault exists to sidestep.
-        addressOfPublicKey: (publicKey) => toSolanaAddress(publicKey),
-
-        formatAddress(address, style = "short") {
-            return style === "full" ? address : `${address.slice(0, 4)}…${address.slice(-4)}`;
-        },
-
-        explorerUrl(ref: ExplorerRef) {
-            // The cluster query is not optional: without it the explorer shows mainnet, where these
-            // addresses have no history and the page reads as "nothing ever happened".
-            const base = ref.kind === "address" ? "address" : "tx";
-            return `https://explorer.solana.com/${base}/${ref.value}?cluster=devnet`;
-        },
+        addressOf: (publicKey) => toSolanaAddress(publicKey),
+        formatAddress: (address, style = "short") => (style === "full" ? address : `${address.slice(0, 4)}…${address.slice(-4)}`),
+        explorerUrl: (ref: ExplorerRef) => `https://explorer.solana.com/${ref.kind === "address" ? "address" : "tx"}/${ref.value}?cluster=devnet`,
 
         async balanceOf(address: string): Promise<Balance> {
             const lamports = await connection.getBalance(new PublicKey(address), "confirmed");
             return { raw: BigInt(lamports), decimals: 9, symbol: "SOL", source: "chain" };
         },
 
-        // Still null: `SettlementBinding` is the SDK's own register/initiate/veto/status surface,
-        // and the Solana equivalents are driven directly from `settlement/solana/` rather than
-        // through it. Wiring the binding is the next step, not a missing capability.
-        settlement: null,
-
         send: {
-            // Somebody else pays the fee, so the vault's whole balance is sendable.
             reserve: () => NO_RESERVE,
-
             async send({ from, to, amount, onProgress }): Promise<SendReceipt> {
-                // Derived, not looked up. The vault's address is a function of the owner key, so
-                // there is nothing to fetch and nothing that can be out of step with the ledger.
-                const addresses = solanaVaultAddresses({
-                    cluster: "devnet",
-                    creator: from.signer.address,
-                });
-
-                const ctx = createVaultProgram({
-                    rpcUrl: options.rpcUrl,
-                    cluster: "devnet",
-                    payer: keypairFromSecret(from.signer.exportPrivateKeyHex_DEMO_ONLY()),
-                });
-
-                // Checked before sending, because the program's failure for an empty vault is
-                // "attempt to debit an account but found no record of a prior credit" — true, and
-                // about an account the user has never been shown.
+                const addresses = addressesFor(from.signer.address);
                 const held = BigInt(await connection.getBalance(addresses.vaultSol, "confirmed"));
                 if (held < amount) {
-                    // The owner key's balance is not the vault's: only lamports in `vault_sol` can be sent.
-                    throw new Error(
-                        `Vault holds ${held} lamports; the transfer needs ${amount}. ` +
-                        `Send SOL to ${addresses.vaultSol.toBase58()}.`,
-                    );
+                    throw new Error(`Vault holds ${held} lamports; the transfer needs ${amount}. Send SOL to ${addresses.vaultSol.toBase58()}.`);
                 }
-
-                // The relayer pays, the owner signs. The owner key is never funded in this demo,
-                // and a send that quietly needed it to be would contradict the whole arrangement.
-                const via = options.serverUrl ? await loadFeePayer(options.serverUrl) : null;
-                onProgress?.(
-                    via === null
-                        ? "feepayer   unavailable — this send is paid by the owner key"
-                        : "feepayer   the server pays; the owner key needs no SOL",
-                );
-
-                const signature = await executeTransfer(ctx, {
-                    addresses,
+                const result = await settlement.executeTransfer({
+                    account: { namespace, accountId: addresses.vault.toBase58(), signerAddress: from.signer.address },
+                    owner: await from.signer.executor(),
                     to,
                     lamports: amount,
-                    ...(via ? { via } : {}),
                     ...(onProgress ? { onProgress } : {}),
                 });
+                return { hash: result.hash, explorerUrl: `https://explorer.solana.com/tx/${result.hash}?cluster=devnet`, fidelity: "onchain" };
+            },
+        },
 
-                return {
-                    hash: signature,
-                    explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
-                    fidelity: "onchain",
-                };
+        /**
+         * `execute_recovery` rotated `vault.owner`; the previous owner lost control outright. Moving
+         * the lamports is the rotated owner's `execute_transfer`, paid for by the relayer: the new
+         * owner is a fresh key with no SOL, and a sweep that needed it funded would fail in exactly
+         * the case this exists for.
+         */
+        sweep: {
+            async sweep({ accountId, signerAddress, to, newOwnerPrivateKeyHex, amount, onProgress }) {
+                if (signerAddress === undefined) {
+                    throw new Error(`Vault record has no creator for Solana vault ${accountId}. Re-protect this chain.`);
+                }
+                const addresses = addressesFor(signerAddress);
+                const held = BigInt(await connection.getBalance(addresses.vaultSol, "confirmed"));
+                const moved = amount ?? held - NO_RESERVE;
+                if (moved <= 0n) throw new Error(`The vault at ${addresses.vaultSol.toBase58()} holds nothing to move.`);
+                const result = await settlement.executeTransfer({
+                    account: { namespace, accountId, signerAddress },
+                    owner: await executorFor(keypairFromSecret(newOwnerPrivateKeyHex)),
+                    to,
+                    lamports: moved,
+                    ...(onProgress ? { onProgress } : {}),
+                });
+                return { hash: result.hash, moved };
             },
         },
     };

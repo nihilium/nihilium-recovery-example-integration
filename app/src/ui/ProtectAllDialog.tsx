@@ -10,7 +10,7 @@
  * looks identical to a chain that is fine — so those rows stay, with their reason.
  */
 import { formatAmount } from "../integration/chains/amounts.js";
-import type { ProtectTarget, SkippedChain } from "../integration/recovery/settlement/coverage.js";
+import type { ProtectTarget, SkippedChain } from "@nihilium/recovery-sdk";
 import type { ProtectAll } from "../demo/useProtectAll.js";
 import type { FeeEstimator } from "../demo/useFeeEstimate.js";
 import { Button, StatusMessage } from "./ds.js";

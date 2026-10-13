@@ -1,25 +1,13 @@
 /**
- * One press, every chain that needs it.
- *
- * A loop over `protectChain`, and the two things that make it more than a loop:
- *
- * **Per-chain failure is a row, never a throw.** Chains fail independently and for unrelated reasons
- * — a relayer that is down for one namespace, an RPC that rate-limits, a chain whose account was
- * never funded. Aborting the loop would leave the chains that worked unreported and the ones after
- * the failure untouched, with nothing on screen saying which was which.
- *
- * **The vault is re-read between chains.** Protecting a chain the gate has not reached calls
- * `addChainToVault`, which writes a new record; handing the *next* chain the record we started with
- * would write that chain's row over a copy that predates the first one, silently dropping it. The
- * store is the only thing that knows what the last iteration wrote, so each chain asks it.
+ * One press, every chain that needs it: the SDK's `protectAll`, which re-reads the ledger between
+ * chains and reports a failure as a row rather than a throw.
  */
 import { useCallback, useState } from "react";
-import type { ProtectAction, ProtectTarget } from "../integration/recovery/settlement/coverage.js";
-import { protectChain } from "../integration/recovery/settlement/protect.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import { protectAll, type ProtectAction, type ProtectAllTarget, type ProtectTarget, type VaultRecord } from "@nihilium/recovery-sdk";
 import type { MethodRegistry } from "../integration/conditions/types.js";
-import type { AppBindings } from "./bindings.js";
+import type { AppBindings } from "../wiring.js";
 import type { WalletSnapshot } from "./wallet.js";
+import { VETO_CONTEXT, demoVetoConfig } from "./vetoConfig.js";
 
 export interface ProtectAllResult {
     chainId: string;
@@ -34,7 +22,6 @@ export interface ProtectAll {
     running: boolean;
     log: readonly string[];
     results: readonly ProtectAllResult[];
-    /** True once a run has finished, so the dialog can show results rather than the offer. */
     done: boolean;
     run(targets: readonly ProtectTarget[]): Promise<void>;
     reset(): void;
@@ -60,47 +47,49 @@ export function useProtectAll(
             setDone(false);
             setLog([]);
             setResults([]);
-
             const note = (line: string) => setLog((prev) => [...prev, line]);
+            const gate = methods?.get(vault.gate.methodId) ?? null;
             const out: ProtectAllResult[] = [];
 
+            // What each chain needs, resolved before the loop: a failure here is a row too.
+            const resolved: ProtectAllTarget[] = [];
             for (const target of targets) {
                 const chain = bindings.chains.get(target.chainId);
                 const account = wallet.accounts[target.chainId]?.[0];
                 const base = { chainId: target.chainId, chainLabel: target.chainLabel, action: target.action };
-
                 if (chain === undefined || account === undefined) {
                     out.push({ ...base, failure: "No account is derived for this chain.", txHash: null });
-                    setResults([...out]);
                     continue;
                 }
-
-                // See the header: the record this chain writes has to build on what the last one
-                // wrote, and only the store knows that.
-                const current = (await bindings.vaults.get(vault.vaultId)) ?? vault;
-
-                note(`── ${target.chainLabel}`);
                 try {
-                    const result = await protectChain(
-                        { env: bindings.env, stores: bindings.stores },
-                        {
-                            chain,
-                            account,
-                            vault: current,
-                            methods,
-                            installed: target.action === "update",
-                            onProgress: note,
-                        },
-                    );
-                    out.push({ ...base, failure: null, txHash: result.txHash });
+                    const published = await bindings.relay.config(chain.namespace);
+                    resolved.push({
+                        chain,
+                        account: { accountId: account.accountId, signerAddress: account.signer.address, executor: await account.signer.executor() },
+                        veto: demoVetoConfig({ namespace: chain.namespace, published, abortAuthority: account.signer.address, timelockSeconds: vault.timelockSeconds }),
+                        vetoContext: VETO_CONTEXT,
+                    });
                 } catch (error) {
-                    const reason = error instanceof Error ? error.message : String(error);
-                    note(`   ✗ ${reason}`);
-                    out.push({ ...base, failure: reason, txHash: null });
+                    out.push({ ...base, failure: error instanceof Error ? error.message : String(error), txHash: null });
                 }
-                setResults([...out]);
             }
+            setResults([...out]);
 
+            if (gate === null) {
+                for (const target of resolved) {
+                    const asked = targets.find((t) => t.chainId === target.chain.id)!;
+                    out.push({ chainId: target.chain.id, chainLabel: asked.chainLabel, action: asked.action, failure: `Vault sealed with "${vault.gate.methodId}", which is not configured in this app.`, txHash: null });
+                }
+            } else {
+                const { rows } = await protectAll(bindings.deps, { vault, gate, targets: resolved, onProgress: note });
+                for (const row of rows) {
+                    const target = targets.find((t) => t.chainId === row.chainId)!;
+                    out.push(row.ok
+                        ? { chainId: row.chainId, chainLabel: target.chainLabel, action: target.action, failure: null, txHash: row.result.tx?.hash ?? null }
+                        : { chainId: row.chainId, chainLabel: target.chainLabel, action: target.action, failure: row.error, txHash: null });
+                }
+            }
+            setResults([...out]);
             setRunning(false);
             setDone(true);
             await onDone?.();
@@ -109,15 +98,7 @@ export function useProtectAll(
     );
 
     return {
-        running,
-        log,
-        results,
-        done,
-        run,
-        reset: useCallback(() => {
-            setLog([]);
-            setResults([]);
-            setDone(false);
-        }, []),
+        running, log, results, done, run,
+        reset: useCallback(() => { setLog([]); setResults([]); setDone(false); }, []),
     };
 }

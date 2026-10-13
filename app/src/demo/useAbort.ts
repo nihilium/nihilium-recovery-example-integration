@@ -2,33 +2,28 @@
  * Killing a recovery, as the owner.
  *
  * **Driven from the vault, not from the handover rows.** An attempt exists on-chain whether or not
- * this browser has a record of it — a recovery somebody else opened has no row here at all, and that
- * is precisely the case abort exists for. Keying this on stored rows would make it unavailable
- * exactly when it is needed.
+ * this browser has a record of it, and that is precisely the case abort exists for.
  *
- * **The authority is the wallet's own key**, which the SDK calls the natural default: the common
- * case is not a rogue provider, it is somebody opening a recovery while the owner still has access,
- * and the obvious party to stop that is whoever holds the key. Two consequences this hook has to
- * live with, and neither is hidden:
- *
- * - The relayer cannot help. `initiate` and `execute` carry authority in a signature, so anyone with
- *   gas may submit them; `abort` checks the sender, so this key signs and pays for itself.
- * - In the true seed-loss case the key is gone, and so is abort. That is the price of seating it
- *   with the owner rather than with a third party, and `canAbort` reports it rather than hiding the
- *   button.
+ * **The authority is the wallet's own key.** `abort` checks the sender, so the relayer cannot help:
+ * the key signs and pays for itself. On Sepolia that key is the Safe's owner EOA, which usually
+ * holds nothing — so the demo tops it up from the relayer's capped faucet first. In the true
+ * seed-loss case the key is gone, and so is abort; `canAbort` reports it rather than hiding the button.
  */
 import { useCallback, useState } from "react";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
-import { handoverFor } from "./handoverRegistry.js";
+import { abortRecoveries, readProtection, type VaultRecord } from "@nihilium/recovery-sdk";
 import { deriveWallet } from "./wallet.js";
 import { seedFingerprint, type SeedBook } from "./seeds.js";
-import type { AppBindings } from "./bindings.js";
+import type { AppBindings } from "../wiring.js";
 
 export interface AbortOutcome {
     chainId: string;
     hash: string | null;
     failure: string | null;
 }
+
+/** 0.001 ETH: below this an abort cannot pay for itself; 0.002 ETH is what the faucet sends. */
+const ABORT_GAS_FLOOR_WEI = 1_000_000_000_000_000n;
+const ABORT_TOP_UP_WEI = 2_000_000_000_000_000n;
 
 export function useAbort(bindings: AppBindings, seeds: SeedBook) {
     const [running, setRunning] = useState(false);
@@ -37,81 +32,62 @@ export function useAbort(bindings: AppBindings, seeds: SeedBook) {
 
     /** Whether this browser still holds the seed the vault's abort authority is derived from. */
     const canAbort = useCallback(
-        (vault: VaultRecord | null) =>
-            vault !== null &&
-            seeds.seeds.some((entry) => seedFingerprint(entry.mnemonic) === vault.walletId),
+        (vault: VaultRecord | null) => vault !== null && seeds.seeds.some((entry) => seedFingerprint(entry.mnemonic) === vault.walletId),
         [seeds.seeds],
     );
 
     const abort = useCallback(
         async (vault: VaultRecord) => {
-            const seed = seeds.seeds.find(
-                (entry) => seedFingerprint(entry.mnemonic) === vault.walletId,
-            );
+            const seed = seeds.seeds.find((entry) => seedFingerprint(entry.mnemonic) === vault.walletId);
             if (seed === undefined) return;
-
             setRunning(true);
             setOutcomes([]);
             setLog([]);
             const note = (line: string) => setLog((prev) => [...prev, line]);
 
             try {
-                // The vault's own wallet, not the active one. Abort is the owner's power, and the
-                // owner here is whoever the vault was sealed against.
+                // The vault's own wallet, not the active one. Abort is the owner's power.
                 const owner = await deriveWallet(bindings.chains, seed.mnemonic);
                 const results: AbortOutcome[] = [];
+                const targets = [];
 
                 for (const record of vault.chains) {
-                    const handover = handoverFor(bindings, record.chainId);
+                    const chain = bindings.chains.get(record.chainId);
                     const account = owner.accounts[record.chainId]?.[0];
-                    if (handover === null || account === undefined) {
-                        results.push({
-                            chainId: record.chainId,
-                            hash: null,
-                            failure: "No settlement is wired for this chain in this build.",
-                        });
+                    if (chain === undefined || chain.settlement === null || account === undefined) {
+                        results.push({ chainId: record.chainId, hash: null, failure: "No settlement is wired for this chain in this build." });
                         continue;
                     }
-                    const chainRecord = {
-                        accountId: record.accountId,
-                        signerAddress: record.signerAddress,
-                        recoveryPubKeyHex: record.recoveryPubKeyHex,
-                    };
-                    try {
-                        // Only where something is in flight. Abort on a chain with no attempt, or
-                        // one already aborted by an earlier press, reverts and reads as a failure.
-                        const problems = await handover.preflight({ chainRecord });
-                        if (!problems.some((problem) => problem.code === "attempt-in-flight")) {
-                            note(`abort      ${record.chainId} — nothing in flight`);
-                            results.push({ chainId: record.chainId, hash: null, failure: null });
-                            continue;
-                        }
-                        const { hash } = await handover.abort({
-                            chainRecord,
-                            serverUrl: bindings.env.serverUrl,
-                            authorityPrivateKeyHex:
-                                account.signer.exportPrivateKeyHex_DEMO_ONLY(),
-                            onProgress: note,
-                        });
-                        results.push({ chainId: record.chainId, hash, failure: null });
-                    } catch (error) {
-                        const reason = error instanceof Error ? error.message : String(error);
-                        note(`abort      ${record.chainId} ✗ ${reason}`);
-                        results.push({ chainId: record.chainId, hash: null, failure: reason });
+                    // Only where something is in flight: abort on a chain with no attempt reverts.
+                    const state = await readProtection({ chain, account: { accountId: record.accountId, ...(record.signerAddress ? { signerAddress: record.signerAddress } : {}) }, vault }).catch(() => null);
+                    if (state === null || (state.attempt !== "INITIATED" && state.attempt !== "PAUSED")) {
+                        note(`abort      ${record.chainId} — nothing in flight`);
+                        results.push({ chainId: record.chainId, hash: null, failure: null });
+                        continue;
                     }
+                    // EVM only: the key pays its own gas and the Safe's owner holds none. The top-up
+                    // authorises nothing; the abort is still the key's own transaction.
+                    if (chain.namespace.startsWith("eip155:")) {
+                        const balance = (await chain.balanceOf(account.signer.address)).raw;
+                        if (balance < ABORT_GAS_FLOOR_WEI) {
+                            note(`fund       ${ABORT_TOP_UP_WEI} wei from the relayer — the abort key has no gas of its own`);
+                            await bindings.relay.fund(chain.namespace, account.signer.address, ABORT_TOP_UP_WEI);
+                        }
+                    }
+                    targets.push({ chain, account: { accountId: record.accountId, ...(record.signerAddress ? { signerAddress: record.signerAddress } : {}) }, authority: await account.signer.keyExecutor() });
+                }
+
+                for (const row of await abortRecoveries({ targets, onProgress: note })) {
+                    results.push(row.ok ? { chainId: row.chainId, hash: row.hash, failure: null } : { chainId: row.chainId, hash: null, failure: row.error });
+                    if (!row.ok) note(`abort      ${row.chainId} ✗ ${row.error}`);
                 }
                 setOutcomes(results);
 
                 // The rows are the only record of an intent, and an aborted attempt can never be
-                // executed — so keeping them would leave a Handover view offering a button that
-                // cannot work.
-                // Only for chains that are now clear. A chain whose abort failed still has a live
-                // attempt, and its row is the only record of it.
-                const clear = new Set(
-                    results.filter((row) => row.failure === null).map((row) => row.chainId),
-                );
-                for (const row of await bindings.handovers.forVault(vault.vaultId)) {
-                    if (clear.has(row.chainId)) await bindings.handovers.delete(row.id);
+                // executed. Only for chains that are now clear.
+                const clear = new Set(results.filter((row) => row.failure === null).map((row) => row.chainId));
+                for (const row of await bindings.deps.handovers.forVault(vault.vaultId)) {
+                    if (clear.has(row.chainId)) await bindings.deps.handovers.delete(row.id);
                 }
             } finally {
                 setRunning(false);

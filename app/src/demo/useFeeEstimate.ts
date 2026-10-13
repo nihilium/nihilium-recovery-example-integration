@@ -15,7 +15,7 @@ import { estimateCost, type CostEstimate } from "../integration/costs/estimate.j
 import { readMainnetPrices, type MainnetPrices } from "../integration/costs/prices.js";
 import { workFor, type CostOperation, type WorkContext } from "../integration/costs/work.js";
 import { protocolFeesFor } from "../integration/costs/protocol.js";
-import type { AppBindings } from "./bindings.js";
+import type { AppBindings } from "../wiring.js";
 
 /** Long enough that reopening a dialog costs nothing, short enough that gas moves are visible. */
 const TTL_MS = 120_000;

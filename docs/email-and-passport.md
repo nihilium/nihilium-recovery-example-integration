@@ -13,7 +13,7 @@ scan, which the SDK deliberately leaves to the app, and the UI around it.
 |---|---|
 | [`conditions/emailPassport.ts`](../app/src/integration/conditions/emailPassport.ts) | The method. Calls the fused adapter directly: no quorum. |
 | [`conditions/subjects/emailPassport.ts`](../app/src/integration/conditions/subjects/emailPassport.ts) | The four fields, their validation, and the scan loop that answers `onPassportRequest`. |
-| [`conditions/passport/zkPassportProver.ts`](../app/src/integration/conditions/passport/zkPassportProver.ts) | One ZKPassport request, start to proof, as a plain promise. No React. |
+| `@nihilium/recovery-passport-zkpassport` | One ZKPassport request, start to proof, as a plain promise. No React. The SDK's package. |
 | [`conditions/live/zkEmailZkPassport.ts`](../app/src/integration/conditions/live/zkEmailZkPassport.ts) | Constructs the live adapter. |
 | [`ui/PassportScan.tsx`](../app/src/ui/PassportScan.tsx) | Renders the prompt: a QR code, a deep link, status, and a retry. |
 
@@ -45,11 +45,10 @@ the passport half could never open:
 There is one check only the user can make: whether the typed name is the name in the passport's
 machine-readable zone. The seal commits to MRZ spellings of it (`VAN<WIJK<<OLAF`), and a recovery
 compares them with the passport byte for byte, up to the end of the first given name.
-[`passport/mrz.ts`](../app/src/integration/conditions/passport/mrz.ts) lists those lines. The seal
-form shows them with a warning, and "Review" stays disabled until the user confirms their passport
-matches one of them. The function mirrors one nihilium-core does not export, so
-`app/test/mrz.test.ts` hashes every displayed line and requires the SDK's own commitment set to
-contain it.
+`mrzNameCandidates` from `@nihilium/recovery-passport-zkpassport` lists those lines. The seal form
+shows them with a warning, and "Review" stays disabled until the user confirms their passport matches
+one of them. The function mirrors one nihilium-core does not export, so the package's own test hashes
+every displayed line and requires nihilium-core's commitment set to contain it.
 
 The address also gets the same live DKIM preflight as the email method, since the email half is
 exactly as unprovable against an unsupported domain.

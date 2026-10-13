@@ -14,8 +14,8 @@
  * browser should stop holding one is the place that lists what it holds.
  */
 import { useRef, useState } from "react";
-import type { CachedRecovery, RecoveryCatalogue } from "../integration/recovery/recoveryCatalogue.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { CachedRecovery, RecoveryCatalogue } from "@nihilium/recovery-sdk";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { Button, StatusMessage } from "./ds.js";
 import { Notice } from "./Notice.js";
 

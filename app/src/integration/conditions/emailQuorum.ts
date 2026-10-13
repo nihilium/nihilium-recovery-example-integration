@@ -9,16 +9,16 @@
  *
  * **To replace:** the presets and their copy, which are product decisions, not protocol ones.
  * **Assumes:** exactly one subject kind. A mixed quorum would keep `kinds` plural and resolve per
- * subject — `quorum.ts` already does.
+ * subject — the SDK's quorum plumbing already does.
  */
-import { parseQuorumVault } from "@nihilium/recovery-condition-quorum";
 import type { SealBlob } from "@nihilium/recovery-core";
 import {
     buildQuorumAppendAdapter,
     buildQuorumCondition,
     buildQuorumProof,
+    describeQuorumSeal,
     toStoredSubjects,
-} from "./quorum.js";
+} from "@nihilium/recovery-sdk/gates";
 import type {
     CeremonyMode,
     GateDescription,
@@ -65,8 +65,8 @@ export interface EmailQuorumOptions {
 }
 
 export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMethod {
-    const kindFor = () => options.kind;
-    const plumbing = { kindFor };
+    // The SDK's k-of-n plumbing, handed the one kind this method has.
+    const plumbing = { memberFor: () => options.kind };
 
     return {
         id: EMAIL_QUORUM_METHOD_ID,
@@ -154,22 +154,12 @@ export function createEmailQuorumMethod(options: EmailQuorumOptions): RecoveryMe
          * From an imported seal alone, with no ledger and no network — which is the position a user
          * recovering on a new device is actually in.
          */
+        /**
+         * From an imported seal alone, with no ledger and no network — which is the position a user
+         * recovering on a new device is actually in. Domain-only, as the seal records it.
+         */
         describeSeal(seal: SealBlob): GateDescription | null {
-            try {
-                const vault = parseQuorumVault(seal);
-                return {
-                    headline: `any ${vault.threshold} of ${vault.members.length} guardians`,
-                    slots: vault.members.map((member) => ({
-                        index: member.index,
-                        // A seal records each member's domain-only summary, never the address, so
-                        // this is the most a file can say about who its guardians are.
-                        label: member.summary,
-                        publicLabel: member.summary,
-                    })),
-                };
-            } catch {
-                return null;
-            }
+            return describeQuorumSeal(seal);
         },
 
         async createSetup(params: MethodSetupParams): Promise<MethodSetup> {

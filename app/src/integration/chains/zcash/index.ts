@@ -65,7 +65,10 @@ export function createZcashTestnetChain(): ChainModule {
                         async sign(payload: Uint8Array) {
                             return new ZcashTransparentKeyAdapter().sign(key.privateKey, payload);
                         },
-                        exportPrivateKeyHex_DEMO_ONLY: () => `0x${bytesToHex(key.privateKey)}`,
+                        // Zcash has no settlement, so there is no account for the SDK to drive.
+                    executor: async () => { throw new Error("Zcash has no settlement in this build."); },
+                    keyExecutor: async () => { throw new Error("Zcash has no settlement in this build."); },
+                    exportPrivateKeyHex_DEMO_ONLY: () => `0x${bytesToHex(key.privateKey)}`,
                     },
                 } satisfies DerivedAccount;
             });
@@ -85,7 +88,7 @@ export function createZcashTestnetChain(): ChainModule {
         // Why this is on the chain module and not derived from the curve: Zcash is secp256k1, same
         // as EVM, and shares none of its address format. A helper that branched on `algorithm` would
         // hand back a `0x…` string here and nothing would notice.
-        addressOfPublicKey: (publicKey) => toZcashTransparentAddress(publicKey, "test"),
+        addressOf: (publicKey) => toZcashTransparentAddress(publicKey, "test"),
 
         formatAddress(address, style = "short") {
             return style === "full" ? address : `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -105,6 +108,8 @@ export function createZcashTestnetChain(): ChainModule {
         },
 
         settlement: null,
+        // No settlement program, so nothing a recovered owner could sweep from.
+        sweep: null,
         // No transfer wired: this repo writes Zcash's key adapter, not a node client.
         send: null,
     };

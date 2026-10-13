@@ -20,10 +20,11 @@ import type {
     SubjectVerification,
 } from "../integration/conditions/types.js";
 import { EMAIL_KIND_ID } from "../integration/conditions/subjects/email.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { useEmailDomainChecks } from "../demo/useEmailDomainChecks.js";
 import type { RecoveryFlow } from "../demo/useRecoveryFlow.js";
-import { Button, Checkbox, StatusMessage, TextInput } from "./ds.js";
+import { Button, Checkbox, StatusMessage } from "./ds.js";
+import { PrivateInput } from "./PrivateInput.js";
 import { Dialog, DialogActions } from "./Dialog.js";
 import { Transcript } from "./Transcript.js";
 import { Notice } from "./Notice.js";
@@ -32,8 +33,8 @@ import {
     DEFAULT_TIMELOCK_SECONDS,
     TIMELOCK_CHOICES,
     timelockLabel,
-} from "../integration/recovery/settlement/timelock.js";
-import { displayRecordId } from "../integration/recovery/vaultRecords.js";
+} from "../demo/timelock.js";
+import { formatRecordId } from "@nihilium/recovery-core";
 import { AddressChip } from "./AddressChip.js";
 
 /**
@@ -308,8 +309,8 @@ export function SealDialog({
                                             <span className="field__label">
                                                 {single ? rowLabel : field.label}
                                             </span>
-                                            <TextInput
-                                                type={inputType(field)}
+                                            <PrivateInput
+                                                kind={inputType(field)}
                                                 value={draft[field.key] ?? ""}
                                                 ariaLabel={`${single ? kind.noun.one : field.label} ${index + 1}`}
                                                 placeholder={placeholderFor(kind.id, field, index)}
@@ -404,7 +405,7 @@ export function SealDialog({
                     )}
                     <div className="row">
                         <span className="field__label">Record id</span>
-                        <AddressChip value={vault.recordId} display={displayRecordId(vault)} />
+                        <AddressChip value={vault.recordId} display={formatRecordId(vault.recordId)} />
                     </div>
                     <Transcript
                         lines={flow.state.logs.seal}

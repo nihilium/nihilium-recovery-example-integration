@@ -7,9 +7,13 @@ in this repo is, and what the workaround teaches a reader that it should not.
 
 ---
 
-## 1. `recoverAll({ proof, chains })` — one ceremony, every chain
+## 1. `recoverAll({ proof, chains })` — one ceremony, every chain (resolved in SDK 0.9.0)
 
-**Today.** `RecoverySDK.recover()` takes one `ChainContext` and returns one authority. The paid,
+**Resolved.** `RecoverySDK.recoverAll` exists, with per-chain failure as a row and an optional
+`expectedRecoveryPubKey` per chain. `oneCeremony.ts` is gone; `@nihilium/recovery-sdk`'s
+`recoverVault` drives it. The original proposal is kept below for the record.
+
+**Today (then).** `RecoverySDK.recover()` takes one `ChainContext` and returns one authority. The paid,
 human-in-the-loop half of a recovery is `ConditionAdapter.openRecords`, which already decrypts
 *every* record in the vault in one pass — the zkEmail adapter's own header says "the email exchange
 and the human wait happen once for the whole batch", and the quorum adapter's says five chains behind
@@ -80,8 +84,8 @@ protect?"* — the query that makes "take control" possible without a wallet kee
 log scan needs a lower bound, and the honest one is the deployment block, which the JSON already
 records as `deployedAtBlock`.
 
-**What this repo does instead.** Pins `11668778` as a constant with a comment naming the file it came
-from.
+**What this repo did.** Pinned `11668778` as a constant with a comment naming the file it came from.
+That code has moved into the SDK's settlement adapters, which still have no deployment block to read.
 
 **What that costs.** A hand-copied constant that no test can check against its source, in an example
 whose whole point is to be copied. A reader on another chain has no way to find theirs except by
@@ -112,9 +116,9 @@ This was found on this repo's first live recovery. For a passport reading `VAN<W
 name-only disclosure reproduces the sealed candidate exactly (`0x0060ac2f…`), while name plus date of
 birth gives `0x00f5784a…`.
 
-**What this repo does instead.** `passport/zkPassportProver.ts` uses `range("birthdate", d, d)`, and
-`app/test/zkPassportProver.test.ts` pins the whole call sequence, including that `eq` never appears.
-Existing seals are unaffected, because nothing on the sealing side changes.
+**What this repo does instead.** The prover is `@nihilium/recovery-passport-zkpassport` now, which uses
+`range("birthdate", d, d)` and pins the whole call sequence in its own test, including that `eq` never
+appears. Existing seals are unaffected, because nothing on the sealing side changes.
 
 **What it costs if nothing changes upstream.** Every integrator who copies the reference component
 gets a recovery that works up to the last step and then fails on a correct passport, with an error
@@ -128,7 +132,7 @@ date-of-birth-extended variants could be generated and matched against the proof
 
 **If declined:** the comment and the test here stay, and each integrator relearns this.
 
-## 4. `Eip7702RecoveryAccount` could not receive ETH (resolved in v1.1.0)
+## 4. `Eip7702RecoveryAccount` could not receive ETH (resolved in v1.1.0; the tier in SDK 0.9.0)
 
 **What it was.** v1.0.0 (`0xF5768f61…B872` on Arbitrum Sepolia) had no `receive()` and no
 `fallback()`. Under EIP-7702 every call to a delegated EOA runs the delegate's code, including a plain
@@ -143,11 +147,8 @@ succeeds and the same call to v1.0.0 reverts.
 authorization (`settlement/eip7702/preflight.ts`, code `implementation-cannot-receive`). It checks the
 property rather than a version string, so a regression cannot be installed by this app.
 
-**Still open, and small.** Core's `Tier` is `"smart-account" | "script"`, with no value for a delegated
-EOA. This repo uses `"smart-account"`. Core documents `tier` as what decides which veto capabilities
-exist, and a delegated EOA has all of them. But it also keeps a protocol-level key that no contract can
-revoke, and neither value describes that. **If declined:** nothing breaks; the label reads slightly
-wrong.
+**Also resolved.** Core's `Tier` now has `"delegated-eoa"`, and `tier` is documented as not being a
+KDF input, so the Arbitrum chain module uses it without affecting any existing vault.
 
 ## 5. `watchtower-evm` cannot watch an `Eip7702RecoveryAccount`
 
@@ -199,9 +200,9 @@ answering `ABORTED`, about a key the account no longer honours, until the next `
 overwrites it. Found live: an abort at 13:03, Arbitrum re-registered by a new vault at 13:21, and the
 card still showing "Aborted".
 
-**What this repo does instead.** `settlement/timelock.ts#predatesRegistration`: a terminal attempt
-whose last checkpoint is older than the chain record's `addedAt` is treated as history, not as this
-vault's stage. A live attempt is never dismissed that way.
+**What this repo does instead.** The SDK's `predatesRegistration` (`@nihilium/recovery-veto`), applied
+by `readProtection`: a terminal attempt whose last checkpoint is older than the chain record's
+`addedAt` is treated as history, not as this vault's stage. A live attempt is never dismissed that way.
 
 **Proposed change.** Have `register` clear a terminal attempt (`EXECUTED` or `ABORTED`), or bump an
 `attemptSeq`-style generation that `stateOf()` compares against, so a fresh registration reads `NONE`

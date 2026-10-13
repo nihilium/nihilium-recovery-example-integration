@@ -1,24 +1,17 @@
 /**
  * Start the wallet over, and by default keep what a recovery needs.
  *
- * **Two resets, because the demo has two questions.** The common one is "I lost my seed, can I get
- * back in?", and that is only a smooth demo if the seal and records survive: they stand in for the
- * copy a real user keeps somewhere other than the device, and making them re-import a file every
- * time proves nothing new. So the default clears the **seeds** and the **handovers**, and keeps the
- * seals, the records and the vault ledger. The other question, "start from nothing", is still one
- * checkbox away and deletes the whole database, as it always did.
+ * The common question is "I lost my seed, can I get back in?", and that is only a smooth demo if the
+ * seal and records survive: they stand in for the copy a real user keeps somewhere other than the
+ * device. So the default clears the **seeds** and the **handovers**, and keeps the seals, the
+ * records, the vault ledger and the watches. "Start from nothing" deletes the whole database.
  *
- * Handovers go either way. Each one names a destination seed, and the seeds are what is being
- * reset, so a kept handover would point at a key this browser no longer has.
+ * Handovers go either way: each names a destination seed, and the seeds are what is being reset.
  *
- * It takes both stores because they are two halves of one wallet: seeds live in `localStorage` and
- * everything they derived lives in IndexedDB. The watch records in `localStorage` follow the vaults:
- * kept when the vaults are, cleared when they are not.
- *
- * **To replace:** all of it. A wallet has no reset button; losing the device is the reset, which is
- * the event this whole repo is about.
+ * **To replace:** all of it. A wallet has no reset button; losing the device is the reset.
  */
-import { clearStores, deleteDatabase, STORES } from "../integration/storage/indexeddb.js";
+import { STORES, clearStores, deleteDatabase } from "@nihilium/recovery-storage-indexeddb";
+import { DEMO_DB_NAME } from "./db.js";
 
 export interface ResetSummary {
     /** What was on devnet stays there. Saying so stops "reset" reading as "refunded". */
@@ -32,9 +25,9 @@ export async function resetDemo(options: { keepRecovery: boolean }): Promise<Res
     // IndexedDB first: it is the one that can refuse, and clearing the seeds before finding that
     // out would leave a wallet that cannot derive the accounts its vaults still point at.
     if (options.keepRecovery) {
-        await clearStores([STORES.handovers, STORES.simAttempts]);
+        await clearStores([STORES.handovers], { dbName: DEMO_DB_NAME });
     } else {
-        await deleteDatabase();
+        await deleteDatabase(DEMO_DB_NAME);
     }
     try {
         if (options.keepRecovery) {

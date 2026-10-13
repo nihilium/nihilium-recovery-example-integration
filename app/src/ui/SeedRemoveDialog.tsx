@@ -18,7 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import type { ChainRegistry } from "../integration/chains/types.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { deriveWallet } from "../demo/wallet.js";
 import type { SeedEntry } from "../demo/seeds.js";
 import { SecretPhrase } from "./SecretPhrase.js";

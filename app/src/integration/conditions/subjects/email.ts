@@ -11,16 +11,16 @@
  * enforces distinct *indices*, not distinct identities, so `Alice@Gmail.com` beside
  * `alice@gmail.com` would otherwise pass every check and leave a "2-of-3" with one real guardian.
  */
+import type { ConditionAdapter } from "@nihilium/recovery-core";
+import { zkEmailPhase } from "@nihilium/recovery-sdk/gates";
 import type {
     ParsedSubject,
-    SubjectPhase,
     PreflightVerdict,
     Subject,
     SubjectDraft,
     SubjectHooks,
     SubjectKind,
 } from "../types.js";
-import type { ConditionAdapter } from "@nihilium/recovery-core";
 
 export const EMAIL_KIND_ID = "email";
 
@@ -92,31 +92,7 @@ export function createEmailSubjectKind(options: EmailSubjectKindOptions): Subjec
             // The structured counterpart, mapped onto this app's own phases. `awaiting_email_reply`
             // is the one that matters: it is the multi-minute wait on a human, and a row that read
             // "working…" through it would be hiding the whole character of a recovery.
-            onPhase: (phase: string) => hooks.onPhase?.(toSubjectPhase(phase)),
+            onPhase: (phase: string) => hooks.onPhase?.(zkEmailPhase(phase)),
         }),
     };
-}
-
-/**
- * `ZKEmailPhase` -> `SubjectPhase`.
- *
- * The live adapter's phases are its own and may grow; anything unrecognised is reported as work in
- * progress rather than dropped, so a new phase upstream degrades to "something is happening" rather
- * than to a row that looks stalled.
- */
-function toSubjectPhase(phase: string): SubjectPhase {
-    switch (phase) {
-        case "preparing":
-            return { kind: "requesting", message: "publishing reveal values" };
-        case "awaiting_email_reply":
-            return { kind: "awaiting-human", message: "emailed — waiting for a reply" };
-        case "proving":
-            return { kind: "proving", message: "reply received, producing the proof" };
-        case "unsealing":
-            return { kind: "proving", message: "asking the processors to unseal" };
-        case "done":
-            return { kind: "done", message: "share recovered" };
-        default:
-            return { kind: "proving", message: phase };
-    }
 }

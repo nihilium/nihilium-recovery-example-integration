@@ -18,7 +18,7 @@ export const ZKPASSPORT_METHOD_ID = "zkpassport-quorum";
 /**
  * The method this demo has not wired, and why.
  *
- * Everything a passport-only gate needs to *run* now exists here: `passport/zkPassportProver.ts`
+ * Everything a passport-only gate needs to *run* now exists: `@nihilium/recovery-passport-zkpassport`
  * drives the scan, and the recovery dialog renders its QR code. What is missing is a subject kind
  * for `@nihilium/recovery-condition-zkpassport` — whose seal records no identity by default, so its
  * recovery asks for the name and date of birth again — and one line in `registry.ts`.

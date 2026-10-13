@@ -1,10 +1,10 @@
 /**
  * Fails `npm install` early, with an instruction instead of a resolver error.
  *
- * Five of the SDK's packages are not on npm yet — `recovery-service`, `recovery-watchtower`, the two
- * watchtower probes, and `@nihilium/recovery-onchain-evm`, which lives in a git submodule. They are
- * consumed through `file:../recovery-sdk/...` links, so a missing sibling checkout (or an
- * uninitialised submodule) fails deep inside npm's resolver with a path nobody can act on.
+ * The SDK's packages are not on npm yet — the services, the probes, the settlement adapters, the
+ * orchestration package and the on-chain bindings, which live in a git submodule. They are consumed
+ * through `file:../recovery-sdk/...` links, so a missing sibling checkout (or an uninitialised
+ * submodule) fails deep inside npm's resolver with a path nobody can act on.
  *
  * Delete this file the day those packages publish; it exists only to describe a temporary shape.
  */
@@ -33,9 +33,16 @@ if (!existsSync(sdk)) {
     for (const pkg of [
         "packages/service",
         "packages/watchtower",
+        "packages/relayer",
+        "packages/sdk",
         "packages/adapters/watchtower-evm",
         "packages/adapters/watchtower-nihilium",
+        "packages/adapters/settlement-evm",
+        "packages/adapters/settlement-solana",
+        "packages/adapters/storage-indexeddb",
+        "packages/adapters/passport-zkpassport",
         "onchain/evm",
+        "onchain/solana",
     ]) {
         if (existsSync(join(sdk, pkg)) && !existsSync(join(sdk, pkg, "dist", "index.js"))) {
             problems.push([
@@ -48,7 +55,7 @@ if (!existsSync(sdk)) {
 }
 
 if (problems.length > 0) {
-    console.error("\nThis demo links four unpublished SDK packages plus the on-chain bindings from a");
+    console.error("\nThis demo links the unpublished SDK packages and the on-chain bindings from a");
     console.error("sibling checkout. See CLAUDE.md -> Conventions -> Dependencies.\n");
     for (const [what, how] of problems) console.error(`  ${what}\n${how}\n`);
     process.exit(1);

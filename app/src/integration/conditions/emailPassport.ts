@@ -5,7 +5,7 @@
  * preimage, one `tied_hash`, which is both the recovery email's subject and the passport proof's
  * `custom_data` — so neither proof can be replayed into another recovery. Wrapping it in a 1-of-1
  * quorum would add a Shamir layer over a single share and change nothing but the seal's size, so this
- * file calls the adapter directly, which is how its README shows it and what `quorum.ts`'s header
+ * file calls the adapter directly, which is how its README shows it and what the SDK's quorum plumbing
  * says a single indivisible identity should do.
  *
  * **To replace:** the copy. A product offering this beside guardians would label it as the owner's
@@ -15,7 +15,7 @@
  * encryption to the vault's public key, which it is for every Nihilium adapter.
  */
 import type { SealBlob, SealPublicComponent } from "@nihilium/recovery-core";
-import { asSubject, toStoredSubjects } from "./quorum.js";
+import { asSubject, toStoredSubjects } from "@nihilium/recovery-sdk/gates";
 import type {
     CeremonyMode,
     GateDescription,

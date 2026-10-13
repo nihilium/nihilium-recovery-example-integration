@@ -7,12 +7,13 @@ and one file worth copying.
 It is not a wallet. It holds one plaintext 12-word seed phrase, in the open, on purpose — the point
 is to lose it convincingly, not to guard it.
 
-> **Status:** the wallet, the role identities, on-chain settlement (Sepolia, Arbitrum Sepolia through
-> an EIP-7702 delegation, and Solana, via the relayer and veto roles), the record host, the
-> watchtower (off-chain unsealing plus Sepolia and Solana on-chain; Arbitrum off-chain only), and two
-> recovery methods exist: an email quorum, and the owner's own email and passport fused into one
-> ceremony — both recovered through the live ceremony. The scenario runner does not. This file
-> states the goal; it is not a log of what exists.
+> **Status:** the wallet, the role identities, on-chain settlement on all three chains through the
+> SDK's settlement adapters, the record host, the watchtower (off-chain unsealing plus Sepolia and
+> Solana on-chain; Arbitrum off-chain only), and two recovery methods: an email quorum, and the
+> owner's own email and passport fused into one ceremony — both through the live ceremony. The
+> orchestration (ledger, protect, one-ceremony recovery, handovers, watch) is the SDK's
+> `@nihilium/recovery-sdk`; this repo wires it. This file states the goal; it is not a log of what
+> exists.
 
 ## The two things this repo optimises for
 
@@ -29,19 +30,25 @@ Where those two conflict, copyability wins in `integration/` and honesty wins in
 ## Shape
 
 ```
-app/                  React + Vite. The wallet, the roles a user plays, the scenario runner.
+app/                  React + Vite. The wallet and the hooks that put SDK calls into React state.
+  src/wiring.ts       the binding point: every SDK instance this app uses, built once
   src/integration/    ── THE COPY LINE ──  SDK-facing code, copy-pasteable, no demo imports
-    chains/           one module per chain + the registry
-    recovery/         seal, addChain, recover, watch registration, settlement bindings
-    conditions/       condition adapters and their wiring (simulated + live)
-  src/scenarios/      one file per scenario, plus the registry that lists them
-  src/demo/           seed phrase, loss simulation, fake funds — demo-only, never copied
+    chains/           one module per chain + the registry; each wraps an SDK settlement adapter
+    conditions/       recovery methods on the SDK's gates: subject kinds, presets, copy, live wiring
+    costs/, keys/     fee estimation; derivation paths
+  src/demo/           seeds, destinations, the hooks (`use*.ts`), the veto config — demo-only
   src/ui/             design-system components, layout, the demo banner
-server/               Express. Every role that cannot run in a browser, each on its own router.
-  src/roles/          records, watchtower, veto, relayer — one directory each
+server/               Express. The SDK's three services behind one host each.
+  src/index.ts        records, watchtower, and one `RelayerService` for every chain
+  src/roles/          records, watchtower — the two with demo affordances around them
 packages/keys/        BIP-32 + SLIP-0010 derivation. The one thing both halves must agree on
-docs/                 per-scenario walkthroughs, written for someone integrating
+docs/                 walkthroughs, written for someone integrating
 ```
+
+What used to be `app/src/integration/recovery/` and `server/src/roles/{relayer,veto}/` — the ledger,
+the settlement, the handovers, the relayer — is the SDK now (`@nihilium/recovery-sdk`,
+`@nihilium/recovery-settlement-*`, `@nihilium/recovery-relayer`). A wallet copies this repo's
+*wiring*, not an implementation of recovery.
 
 `app/`, `server/` and `packages/keys` are separate npm projects (like `../keyless-recovery`), each
 with its own `package.json`. Root scripts proxy to all three.
@@ -57,9 +64,11 @@ paths stay with whoever owns the branch.
 Everything under `app/src/integration/**` and `server/src/roles/**` must be liftable into another
 codebase with a single copy, so:
 
-- It may import `@nihilium/recovery-*`, chain libraries (`viem`, `@solana/kit`, …), and its own
-  siblings. **It may not import from `demo/`, `ui/` or `scenarios/`.** Anything demo-shaped arrives
-  as a parameter.
+- It may import `@nihilium/recovery-*`, chain libraries (`viem`, `@solana/web3.js`, …), and its own
+  siblings. **It may not import from `demo/` or `ui/`.** Anything demo-shaped arrives as a parameter.
+- The SDK's settlement packages and `permissionless` are reached **only** from `integration/chains/`
+  and `wiring.ts`: an adapter is constructed once and arrives everywhere else as an instance. No file
+  here re-derives a digest or a clock; that arithmetic is the SDK's.
 - No React outside of a hook that wraps it; the logic is plain functions and classes so a Vue or
   Node caller can use the same file.
 - Each file opens with a header comment: **what it does**, **what a real app must replace**, and
@@ -79,13 +88,13 @@ process.
 
 | Role | Holds | Lives in | Notes |
 |---|---|---|---|
-| **Wallet / user** | the seal (bearer), the public component, record ids | `app/src/integration/recovery` | seals, adds chains, recovers, reads watch status |
+| **Wallet / user** | the seal (bearer), the public component, record ids | `app/src/demo/use*.ts` over `@nihilium/recovery-sdk` | seals, adds chains, recovers, reads watch status |
 | **Record host** | encrypted records — inert without the seal | `server/src/roles/records` | `@nihilium/recovery-service` behind Express; §12 value decomposition |
 | **Watchtower** | watch registrations, poll results | `server/src/roles/watchtower` | `@nihilium/recovery-watchtower`; pull-only, holds no keys |
-| **Pause authority** | one key; may pause an in-flight recovery | `server/src/roles/veto` | separate key, separate route, separate UI panel |
-| **Abort authority** | one key; may kill a recovery, irreversibly | `app/src/integration/recovery/settlement/evm` | **the wallet's own active EOA**, signed in the browser — see below |
-| **Resume quorum** | k of n member keys; lifts a pause early | `server/src/roles/veto` | three keys, one operator: plural in key material and nothing else |
-| **Relayer** | gas, and nothing else | `server/src/roles/relayer` | submits initiate/execute for an account with no funds |
+| **Pause authority** | one key; may pause an in-flight recovery | `server/src/index.ts`, `operators.pause` | separate key, separate route (`POST /api/relay/:ns/pause`) |
+| **Abort authority** | one key; may kill a recovery, irreversibly | `app/src/demo/useAbort.ts` | **the wallet's own active key**, signed in the browser — see below |
+| **Resume quorum** | k of n member keys; lifts a pause early | `server/src/index.ts`, `operators.resume` | three keys, one operator: plural in key material and nothing else |
+| **Relayer** | gas, and nothing else | `server/src/index.ts`, `RelayerService` | `@nihilium/recovery-relayer`; submits initiate/execute for an account with no funds |
 | **Identity processors, DKIM registry** | — | *external* | Nihilium's, not ours; simulated in offline mode |
 
 Three veto roles on one key looks correctly configured and is worthless. The demo therefore gives
@@ -101,8 +110,8 @@ makes a key a backstop, sitting outside Nihilium's control is. A separate offlin
 because it survives losing the owner key, but that is a tradeoff to offer and never a requirement to
 enforce: do not build a UI that forces a distinct abort key, and do not validate against one.
 
-`@nihilium/recovery-veto` is wired to nothing in the SDK, so `validateVetoConfig` runs only because
-this app calls it before registering — with its independence context declared, not withheld. The
+`validateVetoConfig` runs inside the SDK's `protect`, against the context this app declares in
+`demo/vetoConfig.ts` — never `{}`, which would make the seal-gated check silently unrunnable. The
 chain cannot make that check: the module will install a config whose pause authority also sits in
 the resume quorum without complaint.
 
@@ -125,11 +134,12 @@ Each chain module declares the common surface:
 |---|---|
 | `id`, `label`, `icon` | display. `icon` is a **name**, not a component: React may not cross the copy line |
 | `namespace` | CAIP-2 — `eip155:11155111`, `SOLANA_NAMESPACE.devnet`, … (a KDF input; never hand-written — `solana:devnet` is not a chain id) |
-| `tier` | `"smart-account"` or `"script"` — decides which veto capabilities exist at all |
+| `tier` | `"smart-account"`, `"delegated-eoa"` or `"script"` — which veto capabilities can exist; not a KDF input |
 | `keyAdapter` | the SDK's `KeyAdapter`, or one written here |
-| `deriveAccounts(seed)` | returns **a list** — account-model chains return one, UTXO chains return several |
-| `formatAddress`, `explorerUrl`, `balanceOf` | display and demo funds |
-| `settlement` | how a `recoveryPubKey` is registered on this chain, or `null` |
+| `deriveAccounts(seed)` | returns **a list** — account-model chains return one, UTXO chains return several; each account's `signer.executor()` is the SDK's `AccountExecutor` for it |
+| `formatAddress`, `explorerUrl`, `balanceOf` | display and funds |
+| `settlement` | the SDK's `SettlementAdapter` for this chain's construction, or `null` |
+| `sweep` | moving value out of a *recovered* account as its new owner — a wallet concern, so it lives here |
 
 Three things this multiplicity is here to teach, and each is a scenario:
 
@@ -145,44 +155,21 @@ Three things this multiplicity is here to teach, and each is a scenario:
   with the recovery vault program. **Zcash has no settlement at all**, and anything shown for it
   must be labelled as simulated — an unlabelled fake here would teach exactly the wrong lesson.
 
-## Scenarios
+## The flow, and where each step lives
 
-The middle and lower page is a scenario runner. A scenario is one self-contained file in
-`app/src/scenarios/` exporting a descriptor:
+Every transcript line names the SDK call that produced it (`createVault`, `addChain`, `register`,
+`openRecords`, `initiate`, `execute`), so the screen reads as the API rather than as prose.
 
-```ts
-{
-  id, title,
-  question,          // the one thing this scenario answers
-  roles,             // which of the roles above it involves — rendered as badges
-  chains,            // which chains it touches
-  mode,              // "simulated" | "live"  (live = paid, slow, human-in-the-loop)
-  preconditions,     // e.g. "a sealed vault exists" — checked, and offered as a fix
-  steps: [{ label, teaches, run(ctx) }],
-}
-```
-
-`ctx` gives a scenario the wallet, the chain registry, the SDK instance and a logger; it never gives
-it React. Adding a scenario is one file plus one registry line — no globbing, the registry is a
-readable list.
-
-Each step logs what it did in SDK terms (`sealVault`, `sealRecord`, `openRecords`, `initiateRecovery`)
-so the transcript reads as the API, not as prose. Every scenario links to its file, and to the
-section of [`../recovery-sdk/README.md`](../recovery-sdk/README.md) it demonstrates.
-
-Scenarios worth having, roughly in build order:
-
-1. **Seal and recover, one identity** — the whole loop on EVM, simulated condition.
-2. **Add a chain** — Solana into an existing vault; no ceremony, no payment.
-3. **k-of-n quorum** — three guardians, recover with two, watch the third never get contacted.
-4. **Lost seal / lost records** — the two distinct failure modes, and why records belong everywhere
-   while the seal does not.
-5. **Watchtower alarm** — an unseal begins, the alarm trips, the user still has time.
-6. **The graduated veto** — pause, resume by quorum, abort; the ceiling auto-lifting a pause.
-7. **A recovery spends the vault** — the aftermath: `spent`, no rotation, re-seal, `discardSpentSeal`.
-8. **Relayer-paid recovery** — an account with zero balance recovering anyway.
-9. **Provider-hosted records** — the same recovery with records on `server/`, showing what the host
-   can and cannot see.
+| Step | SDK | Here |
+|---|---|---|
+| seal, and add a second chain for free | `sealVault`, `addChain` | `useRecoveryFlow.ts` |
+| protect every funded chain, one press | `protect`, `protectAll` | `useSettlement.ts`, `useProtectAll.ts` |
+| recover every chain from one ceremony | `recoverVault` over core's `recoverAll` | `useRecoveryFlow.ts` |
+| submit intents now, finish after the timelock with no key | `submitHandovers`, `moveHandovers` | `useRecoveryFlow.ts`, `useHandovers.ts` |
+| refuse a recovery as the owner | `abortRecoveries` | `useAbort.ts` |
+| pause and resume as the operator | `RelayerService` operator routes | `server/src/index.ts` |
+| notice a recovery somebody else started | `buildVaultWatch`, `syncVaultWatch` | `useWatchtower.ts` |
+| a recovery spends the vault | `markSpent`, `discardVault` | `useRecoveryFlow.ts`, `useHandovers.ts` |
 
 ## Live, and only live
 
@@ -229,10 +216,11 @@ binding on UI copy, docs and comments:
   be able to see where state lives by reading one component. Server calls go through small typed
   `fetch` helpers, not a data layer.
 - **Dependencies stay boring.** `@nihilium/recovery-*` from npm; a `file:../recovery-sdk/...` link
-  only where a package is not published. Five are not: `recovery-service`, `recovery-watchtower`,
-  `recovery-watchtower-evm`, `recovery-watchtower-nihilium`, `recovery-watchtower-solana` — plus `@nihilium/recovery-onchain-evm`,
-  which lives in a git submodule. The record host is built on the first of those, so this is not a
-  corner case. Adding any other dependency needs a reason a reader of the example would accept.
+  only where a package is not published — which today is all of them, including the on-chain
+  bindings in a git submodule. `scripts/check-sdk-checkout.mjs` lists the links. Two copies of viem
+  come with linking (the app's and the SDK's); `integration/chains/sdkClients.ts` is the one place
+  that bridges them, and it goes when the SDK installs from npm. Adding any other dependency needs a
+  reason a reader of the example would accept.
 - **Do not edit `../recovery-sdk` or `../nihilium-core` from here.** If the SDK needs a change to
   make an example clean, write the example around it and propose the change to Olaf, with what it
   costs us if declined.
@@ -273,7 +261,9 @@ the boot log is where a reader first sees there are four of them.
 | | |
 |---|---|
 | [`../recovery-sdk/README.md`](../recovery-sdk/README.md) | the integration surface, and every constraint above stated at length |
-| [`../recovery-sdk/examples/quorum-recovery.mjs`](../recovery-sdk/examples/quorum-recovery.mjs) | a working offline tour; the `DemoCondition` pattern this repo builds on |
+| [`../recovery-sdk/examples/`](../recovery-sdk/examples/) | `key-only.mjs` (Tier 0), `settlement-evm.mjs` and `settlement-solana.mjs` (Tier 1), `quorum-recovery.mjs` |
+| `../recovery-sdk/packages/sdk/README.md` | the orchestration this repo's hooks call |
+| `../recovery-sdk/packages/relayer/README.md` | the relayer's routes and its non-capabilities |
 | `../recovery-sdk/packages/service/README.md` | the record host's routes and its non-capabilities |
 | `../recovery-sdk/packages/watchtower/README.md` | the watchtower's routes, and "broken is not quiet" |
 | [`../keyless-recovery`](../keyless-recovery) | a production-shaped integration: the provider seam, the relayer, the loss lab |

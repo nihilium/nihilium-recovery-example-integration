@@ -15,7 +15,7 @@ import type {
     PassportProveEvents,
     PassportProver,
     PassportRequest,
-} from "../src/integration/conditions/passport/zkPassportProver.js";
+} from "@nihilium/recovery-passport-zkpassport";
 import type { Subject, SubjectPrompt } from "../src/integration/conditions/types.js";
 
 const PROOF: PassportVerifierParameters = {

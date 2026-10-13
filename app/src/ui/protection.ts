@@ -10,7 +10,7 @@
  * Per chain, never per vault: a vault covers the chains `addChain()` has been called for, so one
  * answer for the whole page would claim for Solana what was only ever done for Sepolia.
  */
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 
 export type Protection = "unprotected" | "sealed" | "protected" | "stale" | "spent";
 

@@ -18,7 +18,7 @@ import {
     STAGE_LABELS,
     type RecoveryStage,
 } from "../src/ui/recoveryHealth.js";
-import type { VaultRecord } from "../src/integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 
 const open = { spent: null } as VaultRecord;
 const spent = { spent: { at: 1, reason: "every record was decrypted" } } as VaultRecord;

@@ -12,12 +12,9 @@ vault, and adding it is free.
 
 | | file |
 |---|---|
-| the chain | [`app/src/integration/chains/arbitrumSepolia.ts`](../app/src/integration/chains/arbitrumSepolia.ts) |
-| reads, at the EOA's address | [`settlement/eip7702/reads.ts`](../app/src/integration/recovery/settlement/eip7702/reads.ts) |
-| refusals, before anything is signed | [`settlement/eip7702/preflight.ts`](../app/src/integration/recovery/settlement/eip7702/preflight.ts) |
-| delegate, then register | [`settlement/eip7702/register.ts`](../app/src/integration/recovery/settlement/eip7702/register.ts) |
-| initiate, execute, sweep, abort | [`recovery/handover/eip7702.ts`](../app/src/integration/recovery/handover/eip7702.ts) |
-| the relayer | [`server/src/roles/relayer/eip7702.ts`](../server/src/roles/relayer/eip7702.ts) |
+| the chain, and the sweep | [`app/src/integration/chains/arbitrumSepolia.ts`](../app/src/integration/chains/arbitrumSepolia.ts) |
+| reads, refusals, delegate-and-register, initiate, execute, abort | `Eip7702RecoveryAccountSettlement` in `../recovery-sdk/packages/adapters/settlement-evm` |
+| the relayer | `RelayerService` in [`server/src/index.ts`](../server/src/index.ts), over the same adapter with a direct submitter |
 
 ## The account is its own contract
 
@@ -96,8 +93,8 @@ which add an L1 data charge on top.
 ## Running it
 
 - **App:** `VITE_ARBITRUM_SEPOLIA_RPC_URL` defaults to the public RPC.
-- **Server:** `ARBITRUM_SEPOLIA_RPC_URL` defaults to the public RPC too, and the routes mount at
-  `/api/roles/relayer/arbitrum`. The roles have the same addresses as on Sepolia (same path, same
+- **Server:** `ARBITRUM_SEPOLIA_RPC_URL` defaults to the public RPC too, and the relayer answers at
+  `/api/relay/eip155:421614/…`. The roles have the same addresses as on Sepolia (same path, same
   phrase). The relayer needs a little Arbitrum Sepolia ETH; the boot banner prints its balance and a
   faucet.
 - **Wallet:** fund the EOA shown on the Arbitrum tab. Protect all then offers the chain. The first

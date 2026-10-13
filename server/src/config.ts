@@ -96,7 +96,7 @@ export interface Config {
     watchtowerPollSeconds: number;
     /** Adds a `POST /poll` route the watchtower's own API does not have. Demo affordance, off in prod. */
     allowForcedPoll: boolean;
-    /** Ceiling on `POST /api/roles/relayer/fund`, in wei. */
+    /** Ceiling on `POST /api/relay/:namespace/fund` on an EVM chain, in wei. */
     fundMaxWei: bigint;
     /**
      * Solana, or `null` when `SOLANA_RPC_URL` is unset.
@@ -129,7 +129,7 @@ export interface SolanaConfig {
      */
     cluster: SolanaCluster;
     rpcUrl: string;
-    /** Ceiling on `POST /api/roles/relayer/solana/fund`, in lamports. */
+    /** Ceiling on `POST /api/relay/:namespace/fund` on Solana, in lamports. */
     fundMaxLamports: bigint;
     /**
      * Ceiling on what one `/feepayer` co-sign may cost the relayer.

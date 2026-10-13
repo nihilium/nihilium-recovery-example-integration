@@ -40,7 +40,7 @@ import {
     nowSeconds,
     progressFraction,
     projectTimelock,
-} from "../integration/recovery/settlement/timelock.js";
+} from "../demo/timelock.js";
 import type { TimelockRow } from "../demo/useTimelocks.js";
 import { Card, Heading } from "./ds.js";
 

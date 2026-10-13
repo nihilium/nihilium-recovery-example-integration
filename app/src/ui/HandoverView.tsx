@@ -22,8 +22,8 @@ import {
     reconcileHandover,
     type LiveHandover,
     type LiveStage,
-} from "../integration/recovery/handovers.js";
-import { approximate, nowSeconds } from "../integration/recovery/settlement/timelock.js";
+} from "@nihilium/recovery-sdk";
+import { approximate, nowSeconds } from "../demo/timelock.js";
 import type { HandoverGroup, Handovers } from "../demo/useHandovers.js";
 import { seedFingerprint, type SeedBook } from "../demo/seeds.js";
 import { Button, Card, Heading, StatusMessage } from "./ds.js";
@@ -111,18 +111,16 @@ function HandoverCard({
     // `submitted` row is still counting down is the chain's to say, and the old `progress.waiting`
     // — computed from the row alone — kept this button disabled after every chain had matured.
     const now = nowSeconds();
-    const live: LiveHandover[] = group.records.map((record) =>
-        reconcileHandover(
+    const live: LiveHandover[] = group.records.map((record) => {
+        const read = attempts.find(
+            (row) => row.vaultId === record.vaultId && row.chainId === record.chainId && row.accountId === record.accountId,
+        );
+        return reconcileHandover(
             record,
-            attempts.find(
-                (row) =>
-                    row.vaultId === record.vaultId &&
-                    row.chainId === record.chainId &&
-                    row.accountId === record.accountId,
-            ),
+            read === undefined ? undefined : read.unreadable !== null ? { unreadable: read.unreadable } : { attempt: read.projected, clock: read.clock },
             now,
-        ),
-    );
+        );
+    });
     const movable = movableChains(group.records, live);
     const waiting = live.some((row) => row.stage === "counting" || row.stage === "paused");
     // Priced for what the button will do: the ready chains when some are, otherwise every chain the

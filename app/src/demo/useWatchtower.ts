@@ -3,53 +3,33 @@
  *
  * **Automatic, which the SDK does not assume.** It treats watching as opt-in, because registering
  * tells the operator that a vault exists and which accounts it protects. This demo registers on its
- * own: the operator is this repo's own server, and the point is to see the alarm. A real wallet asks.
+ * own: the operator is this repo's own server. A real wallet asks.
  *
- * **Kept in `localStorage`, not on the vault row.** The row is rewritten from in-memory copies by
- * every seal, add and protect, and a field those writers do not know about would be dropped. The
- * watch id also changes with the chain set, and an imported vault simply registers a fresh one, so
- * there is nothing here worth carrying across devices. A reset clears it with everything else.
- *
- * Demo-shaped, so it lives here: it reads the wallet, the env and the stores.
+ * The record of each vault's watch lives in the SDK's `watches` store beside the vault.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WatchtowerUnreachableError } from "@nihilium/recovery-core";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
 import {
     buildVaultWatch,
+    readProtection,
     syncVaultWatch,
     watchView,
     type ChainWatchInput,
-    type UnwatchedChain,
-    type WatchRecord,
+    type VaultRecord,
+    type VaultWatchRecord,
     type WatchView,
-} from "../integration/recovery/watch.js";
-import { readProtection, supportsSettlement } from "../integration/recovery/settlement/protect.js";
-import { solanaVaultAddresses } from "../integration/recovery/settlement/solana/addresses.js";
-import type { AppBindings } from "./bindings.js";
+} from "@nihilium/recovery-sdk";
+import type { AppBindings } from "../wiring.js";
 import type { WalletSnapshot } from "./wallet.js";
 
 /** Matches the server's `WATCHTOWER_POLL_SECONDS` default. Reading a status is one cheap GET. */
 const POLL_MS = 15_000;
 
-const KEY = (vaultId: string) => `nihilium-demo-watch:${vaultId}`;
-
-function loadRecord(vaultId: string): WatchRecord | undefined {
-    try {
-        const raw = window.localStorage.getItem(KEY(vaultId));
-        return raw === null ? undefined : (JSON.parse(raw) as WatchRecord);
-    } catch {
-        return undefined;
-    }
-}
-
-function saveRecord(vaultId: string, record: WatchRecord | undefined): void {
-    try {
-        if (record === undefined) window.localStorage.removeItem(KEY(vaultId));
-        else window.localStorage.setItem(KEY(vaultId), JSON.stringify(record));
-    } catch {
-        // Unwritable storage costs a re-registration on the next load, nothing more.
-    }
+/** A chain with no on-chain target, labelled for the card. */
+export interface UnwatchedChain {
+    chainId: string;
+    label: string;
+    reason: string;
 }
 
 export interface WatchtowerState {
@@ -64,21 +44,22 @@ export function useWatchtower(
     bindings: AppBindings,
     wallet: WalletSnapshot | null,
     vault: VaultRecord | null,
-    /** Changes whenever protection may have changed. `coverage.rows` re-reads after every protect. */
+    /** Changes whenever protection may have changed. */
     trigger: unknown,
 ): WatchtowerState {
-    const [record, setRecord] = useState<WatchRecord | undefined>(undefined);
+    const [record, setRecord] = useState<VaultWatchRecord | undefined>(undefined);
     const [view, setView] = useState<WatchView>({ state: "off", message: "not registered" });
     const [unwatched, setUnwatched] = useState<readonly UnwatchedChain[]>([]);
     const [checking, setChecking] = useState(false);
     const [syncNonce, setSyncNonce] = useState(0);
-    const recordRef = useRef<WatchRecord | undefined>(undefined);
+    const recordRef = useRef<VaultWatchRecord | undefined>(undefined);
+    const watches = bindings.deps.watches;
 
     const vaultId = vault !== null && vault.spent === null ? vault.vaultId : null;
 
     // 1. Register, or re-register when the set of protected chains changed.
     useEffect(() => {
-        if (vaultId === null || vault === null || wallet === null) {
+        if (vaultId === null || vault === null || wallet === null || watches === undefined) {
             recordRef.current = undefined;
             setRecord(undefined);
             setUnwatched([]);
@@ -86,9 +67,6 @@ export function useWatchtower(
             return;
         }
         let cancelled = false;
-        const current = recordRef.current?.url === bindings.watchtowerUrl ? recordRef.current : loadRecord(vaultId);
-        recordRef.current = current;
-        setRecord(current);
 
         void (async () => {
             const method = bindings.methods?.get(vault.gate.methodId) ?? null;
@@ -97,6 +75,9 @@ export function useWatchtower(
                 setView({ state: "unknown", message: `method "${vault.gate.methodId}" is not configured` });
                 return;
             }
+            const current = recordRef.current?.url === bindings.watchtowerUrl ? recordRef.current : await watches.get(vaultId);
+            recordRef.current = current;
+            setRecord(current);
 
             const chains: ChainWatchInput[] = [];
             const notHere: UnwatchedChain[] = [];
@@ -105,7 +86,7 @@ export function useWatchtower(
                     const chain = bindings.chains.get(row.chainId);
                     const account = wallet.accounts[row.chainId]?.[0];
                     const label = chain?.label ?? row.chainId;
-                    if (chain === undefined || !supportsSettlement(row.chainId)) {
+                    if (chain === undefined || chain.settlement === null) {
                         notHere.push({ chainId: row.chainId, label, reason: "no settlement" });
                         return;
                     }
@@ -113,63 +94,34 @@ export function useWatchtower(
                         notHere.push({ chainId: row.chainId, label, reason: "not in this wallet" });
                         return;
                     }
-                    const onchain = await readProtection(
-                        { env: bindings.env, stores: bindings.stores },
-                        { chain, account, vault },
-                    ).catch(() => null);
-                    const solana =
-                        row.chainId === "solana-devnet"
-                            ? (() => {
-                                  const addresses = solanaVaultAddresses({
-                                      cluster: "devnet",
-                                      creator: account.signer.address,
-                                  });
-                                  return {
-                                      vault: addresses.vault.toBase58(),
-                                      programId: addresses.programId.toBase58(),
-                                  };
-                              })()
-                            : undefined;
-                    chains.push({ record: row, label, onchain, ...(solana ? { solana } : {}) });
+                    const onchain = await readProtection({ chain, account: { accountId: row.accountId, ...(row.signerAddress ? { signerAddress: row.signerAddress } : {}) }, vault }).catch(() => null);
+                    chains.push({ record: row, onchain });
                 }),
             );
             if (cancelled) return;
 
             let plan;
             try {
-                const keyAdapter = bindings.chains.get(vault.chains[0]?.chainId ?? "")?.keyAdapter;
-                if (keyAdapter === undefined) throw new Error("the vault names no chain this app knows");
-                plan = buildVaultWatch({ vault, method, keyAdapter, stores: bindings.stores, chains });
+                plan = buildVaultWatch(bindings.deps, { vault, gate: method, chains });
             } catch (error) {
-                setView({
-                    state: "unknown",
-                    message: `could not build a watch: ${error instanceof Error ? error.message : String(error)}`,
-                });
+                setView({ state: "unknown", message: `could not build a watch: ${error instanceof Error ? error.message : String(error)}` });
                 return;
             }
-            setUnwatched([...notHere, ...plan.unwatched]);
+            const labelOf = (chainId: string) => bindings.chains.get(chainId)?.label ?? chainId;
+            setUnwatched([...notHere, ...plan.unwatched.map((row) => ({ ...row, label: labelOf(row.chainId) }))]);
 
-            // A chain that could not be read keeps the current watch as it is, rather than
-            // re-registering without it.
+            // A chain that could not be read keeps the current watch as it is.
             if (plan.incomplete && current !== undefined) return;
             if (credential === undefined) {
-                setView({
-                    state: current === undefined ? "off" : "unknown",
-                    message: "VITE_WATCH_REGISTER_SECRET is not set. Run `npm run setup:env`.",
-                });
+                setView({ state: current === undefined ? "off" : "unknown", message: "VITE_WATCH_REGISTER_SECRET is not set. Run `npm run setup:env`." });
                 return;
             }
-
             try {
                 const { record: next, changed } = await syncVaultWatch({
-                    client: bindings.watchtower(),
-                    url: bindings.watchtowerUrl,
-                    credential,
-                    current,
-                    registration: plan.registration,
+                    client: bindings.watchtower(), url: bindings.watchtowerUrl, credential, vaultId, current, registration: plan.registration,
                 });
                 if (cancelled) return;
-                if (changed) saveRecord(vaultId, next);
+                if (changed) await watches.put(next);
                 recordRef.current = next;
                 setRecord(next);
             } catch (error) {
@@ -181,21 +133,18 @@ export function useWatchtower(
         return () => {
             cancelled = true;
         };
-        // `vault` and `wallet` are read through their identities' stand-ins below: the chain set and
-        // the trigger decide when protection may have changed, not every re-render of the objects.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the chain set and the trigger decide when protection may have changed
     }, [bindings, vaultId, vault?.chains, wallet, trigger, syncNonce]);
 
     // 2. Read the status on a timer, while a watch exists.
-    const read = useCallback(async (watch: WatchRecord) => {
+    const read = useCallback(async (watch: VaultWatchRecord) => {
         try {
             const status = await bindings.watchtower().status(watch.watchId);
             setView(watchView({ status }));
         } catch (error) {
-            // A watch the server no longer has (its store was wiped) is not a broken watchtower:
-            // forget it and register again. Anything else is `unknown`, never quiet.
+            // A watch the server no longer has is not a broken watchtower: forget it and register again.
             if (!(error instanceof WatchtowerUnreachableError) && String(error).includes("No such watch")) {
-                if (vaultId !== null) saveRecord(vaultId, undefined);
+                if (vaultId !== null) await watches?.delete(vaultId);
                 recordRef.current = undefined;
                 setRecord(undefined);
                 setSyncNonce((n) => n + 1);
@@ -203,7 +152,7 @@ export function useWatchtower(
             }
             setView(watchView({ error }));
         }
-    }, [bindings, vaultId]);
+    }, [bindings, vaultId, watches]);
 
     useEffect(() => {
         if (record === undefined) return;

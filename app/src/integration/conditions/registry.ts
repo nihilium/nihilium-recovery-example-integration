@@ -24,14 +24,14 @@ import {
 } from "./emailPassport.js";
 import { createEmailSubjectKind } from "./subjects/email.js";
 import { createEmailPassportSubjectKind } from "./subjects/emailPassport.js";
-import { createDkimPreflight } from "./preflight/dkim.js";
-import { createZkEmailAdapter, type LiveCeremonyConfig } from "./live/zkEmailMembers.js";
-import { createZkEmailZkPassportAdapter } from "./live/zkEmailZkPassport.js";
+import { createDkimPreflight } from "@nihilium/recovery-sdk/gates";
 import {
     createZkPassportProver,
     type PassportProver,
     type ZkPassportProverOptions,
-} from "./passport/zkPassportProver.js";
+} from "@nihilium/recovery-passport-zkpassport";
+import { createZkEmailAdapter, type LiveCeremonyConfig } from "./live/zkEmailMembers.js";
+import { createZkEmailZkPassportAdapter } from "./live/zkEmailZkPassport.js";
 import type { MethodRegistry, RecoveryMethod } from "./types.js";
 
 export type { LiveCeremonyConfig } from "./live/zkEmailMembers.js";

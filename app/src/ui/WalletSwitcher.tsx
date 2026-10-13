@@ -1,5 +1,5 @@
 import type { ChainModule } from "../integration/chains/types.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { Icon } from "./icons.js";
 import { ProtectionDot } from "./ProtectionBadge.js";
 import { protectionOf } from "./protection.js";

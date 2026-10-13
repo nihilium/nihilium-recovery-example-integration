@@ -16,12 +16,13 @@
 import { iso, normalizeBirthdate } from "@nihilium/recovery-condition-zkpassport";
 import type { PassportVerifierParameters } from "@nihilium/recovery-condition-zkpassport";
 import type { ConditionAdapter } from "@nihilium/recovery-core";
-import { mrzNameCandidates } from "../passport/mrz.js";
-import type {
-    PassportProver,
-    PassportRequest,
-    PassportScanStatus,
-} from "../passport/zkPassportProver.js";
+import {
+    mrzNameCandidates,
+    type PassportProver,
+    type PassportRequest,
+    type PassportScanStatus,
+} from "@nihilium/recovery-passport-zkpassport";
+import { zkEmailZkPassportPhase } from "@nihilium/recovery-sdk/gates";
 import type {
     ParsedSubject,
     PreflightVerdict,
@@ -30,7 +31,6 @@ import type {
     SubjectHooks,
     SubjectIssue,
     SubjectKind,
-    SubjectPhase,
 } from "../types.js";
 
 export const EMAIL_PASSPORT_KIND_ID = "email+passport";
@@ -160,7 +160,7 @@ export function createEmailPassportSubjectKind(options: EmailPassportSubjectKind
         proofParams: (subject, hooks: SubjectHooks) => ({
             email: subject.values["email"],
             onProgress: (message: string) => hooks.onProgress?.(message),
-            onPhase: (phase: string) => hooks.onPhase?.(toSubjectPhase(phase)),
+            onPhase: (phase: string) => hooks.onPhase?.(zkEmailZkPassportPhase(phase)),
             onPassportRequest: (
                 request: PassportRequest,
                 submit: (proof: PassportVerifierParameters) => Promise<void>,
@@ -236,33 +236,6 @@ export function runScan(
 
     const retry = () => void attempt();
     void attempt();
-}
-
-/**
- * `ZKEmailZKPassportPhase` -> `SubjectPhase`.
- *
- * Three of its phases are waits on a human, and which human is the whole of what a row should say:
- * both outstanding, only the reply, or only the scan.
- */
-function toSubjectPhase(phase: string): SubjectPhase {
-    switch (phase) {
-        case "preparing":
-            return { kind: "requesting", message: "publishing reveal values" };
-        case "awaiting_email_reply_and_passport_scan":
-            return { kind: "awaiting-human", message: "emailed — waiting for a reply and a scan" };
-        case "awaiting_email_reply":
-            return { kind: "awaiting-human", message: "passport in — waiting for the email reply" };
-        case "awaiting_passport_proof":
-            return { kind: "awaiting-human", message: "reply in — waiting for the passport scan" };
-        case "proving":
-            return { kind: "proving", message: "producing the email proof" };
-        case "unsealing":
-            return { kind: "proving", message: "asking the processors to unseal" };
-        case "done":
-            return { kind: "done", message: "vault key recovered" };
-        default:
-            return { kind: "proving", message: phase };
-    }
 }
 
 function collapse(value: string | undefined): string {

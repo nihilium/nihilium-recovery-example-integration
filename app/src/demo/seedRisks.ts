@@ -10,9 +10,9 @@
  *
  * Demo-only: it reads the seed book, which nothing outside `demo/` may know about.
  */
-import type { CoverageRow } from "../integration/recovery/settlement/coverage.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
-import type { AppBindings } from "./bindings.js";
+import type { CoverageRow } from "@nihilium/recovery-sdk";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
+import type { AppBindings } from "../wiring.js";
 import { seedFingerprint, type SeedEntry } from "./seeds.js";
 import { readCoverage } from "./useChainCoverage.js";
 import { deriveWallet } from "./wallet.js";
@@ -39,7 +39,7 @@ export interface SeedAtRisk {
 }
 
 export async function readSeedRisks(
-    bindings: Pick<AppBindings, "chains" | "env" | "stores">,
+    bindings: Pick<AppBindings, "chains">,
     seeds: readonly SeedEntry[],
     vaults: readonly VaultRecord[],
 ): Promise<SeedAtRisk[]> {

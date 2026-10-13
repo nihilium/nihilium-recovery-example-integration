@@ -22,12 +22,12 @@
  * separate questions and they get separate indicators.
  */
 import type { VetoState } from "@nihilium/recovery-core";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import {
     hasMatured,
     nowSeconds,
     type AttemptClock,
-} from "../integration/recovery/settlement/timelock.js";
+} from "../demo/timelock.js";
 
 export type RecoveryStage =
     /** Nothing has happened. */

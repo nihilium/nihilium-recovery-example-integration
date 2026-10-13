@@ -5,8 +5,8 @@
  * of the seal dialog, which is where it matters most: that step exists so nobody leaves the ceremony
  * without the one artifact it produced.
  */
-import { sealFileName, type SealFile } from "../integration/recovery/sealFile.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import { sealFileName, type SealFile } from "@nihilium/recovery-sdk";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 
 export function downloadSeal(vault: VaultRecord, sealFile: SealFile): void {
     const blob = new Blob([JSON.stringify(sealFile, null, 2)], { type: "application/json" });

@@ -38,7 +38,7 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
             format: (b) => `${formatEther(b).padStart(10)} ETH`,
             low: LOW_BALANCE_WEI,
             balanceOf: (address) => evmClient.getBalance({ address: address as `0x${string}` }),
-            prefix: "/api/roles",
+            prefix: "/api/relay",
         },
     ];
 
@@ -51,7 +51,7 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
             // An L2: initiate and execute cost a fraction of what they do on Sepolia.
             low: LOW_BALANCE_WEI / 10n,
             balanceOf: (address) => arbClient.getBalance({ address: address as `0x${string}` }),
-            prefix: "/api/roles/*/arbitrum",
+            prefix: "/api/relay",
         });
     }
 
@@ -65,17 +65,17 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
             low: LOW_BALANCE_LAMPORTS,
             balanceOf: async (address) =>
                 BigInt(await connection.getBalance(new PublicKey(address), "confirmed")),
-            prefix: "/api/roles/*/solana",
+            prefix: "/api/relay",
         });
     }
 
     const roles: { label: string; identity: RoleIdentity; routes: string }[] = [
-        { label: "relayer", identity: config.roles.relayer, routes: "POST /api/roles/relayer/{initiate,execute,fund}" },
-        { label: "pause authority", identity: config.roles.pause, routes: "POST /api/roles/veto/pause" },
+        { label: "relayer", identity: config.roles.relayer, routes: "POST /api/relay/:ns/{initiate,execute,fund}" },
+        { label: "pause authority", identity: config.roles.pause, routes: "POST /api/relay/:ns/pause" },
         ...config.roles.resume.map((identity, i) => ({
             label: `resume member ${i + 1}`,
             identity,
-            routes: i === 0 ? "POST /api/roles/veto/resume" : "",
+            routes: i === 0 ? "POST /api/relay/:ns/resume-as-operator" : "",
         })),
     ];
 
@@ -116,18 +116,10 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
         console.log(`    ${chain.label}  (${chain.namespace})`);
         for (const row of onChain) {
             const shown = row.balance === null ? " balance unreadable" : chain.format(row.balance);
-            // A role with no routes on this chain prints none. The Solana veto is unbuilt, and a
-            // banner advertising a route that 404s is worse than a blank column.
-            const routes =
-                chain.prefix === "/api/roles"
-                    ? row.routes
-                    : row.label !== "relayer"
-                      ? "— no route on this chain yet"
-                      : chain.prefix === "/api/roles/*/arbitrum"
-                        ? "POST /api/roles/relayer/arbitrum/{initiate,execute,execute-calls}"
-                        : "POST /api/roles/relayer/solana/{initiate,execute,fund,feepayer}";
+            // One `RelayerService` serves every chain under `/api/relay/:namespace`, so the routes
+            // are the same on each; only the namespace in the path differs.
             console.log(
-                `      ${row.label.padEnd(18)} ${row.key.authority.id.padEnd(44)} ${shown}  ${routes}`,
+                `      ${row.label.padEnd(18)} ${row.key.authority.id.padEnd(44)} ${shown}  ${row.routes}`,
             );
         }
     }

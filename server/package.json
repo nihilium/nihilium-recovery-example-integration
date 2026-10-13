@@ -11,25 +11,30 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "@nihilium-demo/keys": "*",
     "@nihilium/recovery-core": "file:../../recovery-sdk/packages/core",
+    "@nihilium/recovery-key-evm": "file:../../recovery-sdk/packages/adapters/key-evm",
     "@nihilium/recovery-key-solana": "file:../../recovery-sdk/packages/adapters/key-solana",
     "@nihilium/recovery-onchain-evm": "file:../../recovery-sdk/onchain/evm",
     "@nihilium/recovery-onchain-solana": "file:../../recovery-sdk/onchain/solana",
+    "@nihilium/recovery-relayer": "file:../../recovery-sdk/packages/relayer",
     "@nihilium/recovery-service": "file:../../recovery-sdk/packages/service",
+    "@nihilium/recovery-settlement-evm": "file:../../recovery-sdk/packages/adapters/settlement-evm",
+    "@nihilium/recovery-settlement-solana": "file:../../recovery-sdk/packages/adapters/settlement-solana",
     "@nihilium/recovery-storage-local": "file:../../recovery-sdk/packages/adapters/storage-local",
+    "@nihilium/recovery-veto": "file:../../recovery-sdk/packages/veto",
     "@nihilium/recovery-watchtower": "file:../../recovery-sdk/packages/watchtower",
     "@nihilium/recovery-watchtower-evm": "file:../../recovery-sdk/packages/adapters/watchtower-evm",
     "@nihilium/recovery-watchtower-nihilium": "file:../../recovery-sdk/packages/adapters/watchtower-nihilium",
     "@nihilium/recovery-watchtower-solana": "file:../../recovery-sdk/packages/adapters/watchtower-solana",
-    "@coral-xyz/anchor": "^0.31.1",
     "@scure/bip32": "^2.4.0",
     "@scure/bip39": "^2.4.0",
     "@solana/web3.js": "^1.98.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "viem": "^2.56.7"
+    "viem": "^2.57.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

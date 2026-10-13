@@ -8,8 +8,8 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDemo } from "../src/demo/reset.js";
-import { HandoverStore } from "../src/integration/recovery/handovers.js";
-import { IdbSealStore } from "../src/integration/storage/sealStore.js";
+import { IdbHandoverStore, IdbSealStore } from "@nihilium/recovery-storage-indexeddb";
+import { DEMO_DB_NAME } from "../src/demo/db.js";
 
 function withStorage(): Map<string, string> {
     const store = new Map<string, string>();
@@ -35,22 +35,22 @@ beforeEach(async () => {
     local.set("nihilium-demo.seeds", "{}");
     local.set("nihilium-demo-watch:vault-1", "{}");
     // The app's own database, not a per-test one: reset acts on what the app uses.
-    await new IdbSealStore().putSeal("vault-1", { format: "demo-seal", payload: {} } as never);
-    await new HandoverStore().put({ id: "vault-1:evm-sepolia", vaultId: "vault-1" } as never);
+    await new IdbSealStore({ dbName: DEMO_DB_NAME }).putSeal("vault-1", { format: "demo-seal", payload: {} } as never);
+    await new IdbHandoverStore({ dbName: DEMO_DB_NAME }).put({ id: "vault-1:evm-sepolia", vaultId: "vault-1" } as never);
 });
 
 describe("resetting the wallet", () => {
     it("keeps the seal and the vault's watch, and forgets the seeds and handovers", async () => {
         await resetDemo({ keepRecovery: true });
-        expect((await new IdbSealStore().listSeals()).map((ref) => ref.vaultId)).toEqual(["vault-1"]);
-        expect(await new HandoverStore().list()).toEqual([]);
+        expect((await new IdbSealStore({ dbName: DEMO_DB_NAME }).listSeals()).map((ref) => ref.vaultId)).toEqual(["vault-1"]);
+        expect(await new IdbHandoverStore({ dbName: DEMO_DB_NAME }).list()).toEqual([]);
         expect([...local.keys()]).toEqual(["nihilium-demo-watch:vault-1"]);
     });
 
     it("deletes everything when asked to", async () => {
         await resetDemo({ keepRecovery: false });
-        expect(await new IdbSealStore().listSeals()).toEqual([]);
-        expect(await new HandoverStore().list()).toEqual([]);
+        expect(await new IdbSealStore({ dbName: DEMO_DB_NAME }).listSeals()).toEqual([]);
+        expect(await new IdbHandoverStore({ dbName: DEMO_DB_NAME }).list()).toEqual([]);
         expect(local.size).toBe(0);
     });
 });

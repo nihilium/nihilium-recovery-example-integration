@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createAppBindings } from "./demo/bindings.js";
+import { createAppBindings } from "./wiring.js";
 import { useRecoveryFlow } from "./demo/useRecoveryFlow.js";
 import { useSettlement } from "./demo/useSettlement.js";
 import { useAttempts, useTimelocks, type TimelockRow } from "./demo/useTimelocks.js";
@@ -21,8 +21,7 @@ import { SeedBar } from "./ui/SeedBar.js";
 import { SeedRemoveDialog } from "./ui/SeedRemoveDialog.js";
 import { RecoverDialog } from "./ui/RecoverDialog.js";
 import { RecoveryCard } from "./ui/RecoveryCard.js";
-import { groupRecoveries, seedRecovery } from "./integration/recovery/recoveryCatalogue.js";
-import { discardVault } from "./integration/recovery/vault.js";
+import { chainsToProtect, discardVault, groupRecoveries, seedRecovery, staleChains, type VaultRecord } from "@nihilium/recovery-sdk";
 import { TimelockBox } from "./ui/TimelockBox.js";
 import { HandoverView } from "./ui/HandoverView.js";
 import { ResetDialog } from "./ui/ResetDialog.js";
@@ -32,10 +31,8 @@ import { useAbort } from "./demo/useAbort.js";
 import { useFeeEstimate } from "./demo/useFeeEstimate.js";
 import { useChainCoverage } from "./demo/useChainCoverage.js";
 import { useProtectAll } from "./demo/useProtectAll.js";
-import { chainsToProtect, staleChains } from "./integration/recovery/settlement/coverage.js";
 import { ProtectAllDialog } from "./ui/ProtectAllDialog.js";
 import { useWatchtower } from "./demo/useWatchtower.js";
-import type { VaultRecord } from "./integration/recovery/vaultRecords.js";
 import { Button, StatusMessage, TopBar } from "./ui/ds.js";
 import { AddressChip } from "./ui/AddressChip.js";
 
@@ -127,7 +124,7 @@ export function App() {
 
     // Every chain the vault covers, not the one on screen: a recovery is not finished until the
     // slowest timelock has matured, and the chain switcher must not change that answer.
-    const timelocks = useTimelocks(bindings, flow.vault, wallet);
+    const timelocks = useTimelocks(bindings, flow.vault);
 
     // Recoveries already on-chain. Keyed on the handover rows, not on the active seed — which is
     // the seed a recovery says you no longer have, and the reason none of this was visible before.
@@ -150,7 +147,7 @@ export function App() {
             ),
         [handovers.state.groups],
     );
-    const handoverAttempts = useAttempts(bindings, wallet, handoverTargets);
+    const handoverAttempts = useAttempts(bindings, handoverTargets);
     // Driven from the vault rather than from handover rows: an attempt exists on-chain whether or
     // not this browser recorded it, and a recovery somebody else opened has no row here at all.
     const aborts = useAbort(bindings, seeds);
@@ -467,7 +464,7 @@ export function App() {
                         await flow.importSeal(await file.text());
                     }}
                     onDelete={(row) => {
-                        void discardVault(bindings.stores, row.vault.vaultId).then(flow.reload);
+                        void discardVault(bindings.deps, row.vault.vaultId).then(flow.reload);
                     }}
                     onOpenHandover={() => {
                         setRecovering(null);

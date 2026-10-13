@@ -17,10 +17,10 @@
  */
 import { useEffect, useState } from "react";
 import { resetDemo } from "../demo/reset.js";
-import type { AppBindings } from "../demo/bindings.js";
+import type { AppBindings } from "../wiring.js";
 import type { SeedEntry } from "../demo/seeds.js";
 import { readSeedRisks, type AccountReach, type SeedAtRisk } from "../demo/seedRisks.js";
-import type { VaultRecord } from "../integration/recovery/vaultRecords.js";
+import type { VaultRecord } from "@nihilium/recovery-sdk";
 import { formatAmount } from "../integration/chains/amounts.js";
 import { AddressChip } from "./AddressChip.js";
 import { Button, Checkbox, StatusMessage } from "./ds.js";

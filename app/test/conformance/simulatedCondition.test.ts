@@ -16,8 +16,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import { createDemoCohort } from "../../src/integration/conditions/simulated/cohort.js";
 import { DemoEmailConditionAdapter } from "../../src/integration/conditions/simulated/demoEmailCondition.js";
-import { IdbSealedDataStore } from "../../src/integration/storage/dataStore.js";
-import { IdbSealStore } from "../../src/integration/storage/sealStore.js";
+import { IdbSealStore, IdbSealedDataStore } from "@nihilium/recovery-storage-indexeddb";
 
 const EMAILS = ["alice@gmail.com", "bob@fastmail.com", "carol@proton.me"];
 

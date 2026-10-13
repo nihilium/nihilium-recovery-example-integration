@@ -22,7 +22,11 @@ const NODE_ONLY_PACKAGES = [
     "@nihilium/recovery-storage-local",
     "@nihilium/recovery-service",
     "@nihilium/recovery-watchtower",
+    "@nihilium/recovery-relayer",
 ];
+
+/** The on-chain arithmetic belongs to the SDK's settlement adapters: no file here may re-derive it. */
+const SDK_OWNED = /\bfunction\s+(hashIntent|resumeDigest|registrationDigest|projectTimelock|intentDigest)\b/;
 
 describe("the copy line", () => {
     it("has files to check", () => {
@@ -77,6 +81,22 @@ describe("the copy line", () => {
                 .map((specifier) => `${file.path} -> ${specifier}`),
         );
         expect(violations, "the server holds these; a browser import breaks at runtime").toEqual([]);
+    });
+
+    it("defines none of the protocol arithmetic the SDK owns", () => {
+        const violations = readSources("src").filter((file) => SDK_OWNED.test(file.text)).map((file) => file.path);
+        expect(violations, "digests and clocks come from the SDK's adapters").toEqual([]);
+    });
+
+    it("reaches the SDK's settlement packages only from the chain modules and the wiring", () => {
+        const violations = readSources("src")
+            .filter((file) => !/^src\/(integration\/chains\/|wiring\.ts)/.test(file.path))
+            .flatMap((file) =>
+                file.imports
+                    .filter((specifier) => /^@nihilium\/recovery-settlement-/.test(specifier) || specifier === "permissionless" || specifier.startsWith("permissionless/"))
+                    .map((specifier) => `${file.path} -> ${specifier}`),
+            );
+        expect(violations, "adapters are constructed once, in the chain modules, and arrive everywhere else as instances").toEqual([]);
     });
 
     it("opens every file with what it does, what to replace and what it assumes", () => {

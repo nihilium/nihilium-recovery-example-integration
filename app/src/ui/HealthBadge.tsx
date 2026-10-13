@@ -8,7 +8,7 @@
  *
  * `recoveryHealth.ts` decides what the states are; this only draws them.
  */
-import type { WatchView } from "../integration/recovery/watch.js";
+import type { WatchView } from "@nihilium/recovery-sdk";
 import { STAGE_LABELS, type RecoveryStage } from "./recoveryHealth.js";
 
 export function StageBadge({ stage }: { stage: RecoveryStage }) {
