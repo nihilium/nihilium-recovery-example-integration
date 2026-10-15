@@ -7,8 +7,9 @@
  * a record host — and nothing below it reads the environment.
  *
  * **This app runs the live ceremony.** Sealing is paid, recovery emails real people and waits for
- * them. Building the method registry can fail — no API key is the common one — and that failure is
- * carried as a value: the wallet still renders, and the recovery panel says exactly what is missing.
+ * them. Building the method registry can fail — no credential for the server's payment route is the
+ * common one — and that failure is carried as a value: the wallet still renders, and the recovery
+ * panel says exactly what is missing.
  */
 import { HttpRelaySubmitter, WatchtowerClient } from "@nihilium/recovery-core";
 import { createRecordHost, type OrchestrationDeps, type RecordHost } from "@nihilium/recovery-sdk";
@@ -68,7 +69,9 @@ export function createAppBindings(): AppBindings {
             live: {
                 emailServiceUrl: env.nihilium.emailServiceUrl,
                 apiUrl: env.nihilium.apiUrl,
-                apiKey: env.nihilium.apiKey ?? "",
+                // Sealing is paid through this app's server, which holds the API key.
+                paymentServerUrl: server,
+                paymentCredential: env.recordAppendSecret ?? "",
                 network: env.chainId,
                 // Nihilium's **processor** cohort, not the guardian quorum.
                 processorThreshold: env.nihilium.processorThreshold,

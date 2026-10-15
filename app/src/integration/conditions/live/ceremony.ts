@@ -6,23 +6,24 @@
  * endpoint are set up once, here, rather than in two copies that could disagree about which API a
  * ceremony talks to.
  *
- * **To replace:** `apiKey`. This demo ships it to the browser, which the SDK names loudly for what
- * it is: `NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE`. It is a spend limit on sealing rather
- * than access to anyone's funds, and a real wallet still keeps its payment provider behind its own
- * backend, so the key never leaves a server it controls.
+ * **Payment goes through this app's own server.** The Nihilium API key is in `server/.env` and
+ * nowhere in this bundle: `BackendPaymentProvider` asks the server for a token per processor share,
+ * bound to that one share and accepted once, and the server's `PaymentTokenService` adds the key.
+ * **To replace:** `paymentCredential`. The demo proves itself with the record append secret, which
+ * is in the bundle; a real wallet sends its user's session, and the server checks that instead.
  * **Assumes:** one API endpoint per page. `setApiEndpoint` is global to the client SDK, so two
  * adapters configured against different endpoints would silently share whichever was set last.
  */
-import {
-    NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE,
-    setApiEndpoint,
-    type PaymentProvider,
-} from "@nihilium/recovery-nihilium";
+import { BackendPaymentProvider, setApiEndpoint, type PaymentProvider } from "@nihilium/recovery-nihilium";
 
 export interface LiveCeremonyConfig {
     emailServiceUrl: string;
+    /** The Nihilium API: registry and processor lookups. Free; only sealing is paid. */
     apiUrl: string;
-    apiKey: string;
+    /** This app's server, which holds the Nihilium API key and mints seal tokens. */
+    paymentServerUrl: string;
+    /** Proves this app to that server. Empty means there is nothing to authenticate with. */
+    paymentCredential: string;
     /** The chain whose Nihilium deployment verifies the proofs. Sepolia today. */
     network: number;
     /**
@@ -39,12 +40,18 @@ export class LiveCeremonyUnavailableError extends Error {
     override readonly name = "LiveCeremonyUnavailableError";
 }
 
-/** Refuses without a key, points the client SDK at the API, and returns the payment provider. */
+/**
+ * Refuses without a credential, points the client SDK at the API, and returns the payment provider.
+ *
+ * Whether the server holds a key is not knowable here without a request; `/health` reports it, and
+ * a seal against a server without one fails with a message naming `NIHILIUM_API_KEY`.
+ */
 export function livePayment(config: LiveCeremonyConfig): PaymentProvider {
-    if (config.apiKey.trim() === "") {
+    if (config.paymentCredential.trim() === "") {
         throw new LiveCeremonyUnavailableError(
-            "Sealing is a paid Nihilium operation and no API key is set. Put one in " +
-                "app/.env.local as VITE_NIHILIUM_API_KEY — see docs/configuration.md.",
+            "Sealing is a paid Nihilium operation, paid through this app's server, and there is no " +
+                "credential to ask it with. Run `npm run setup:env` to generate VITE_RECORD_APPEND_SECRET " +
+                "— see docs/configuration.md.",
         );
     }
 
@@ -53,5 +60,5 @@ export function livePayment(config: LiveCeremonyConfig): PaymentProvider {
     // ceremony rather than here.
     setApiEndpoint(config.apiUrl);
 
-    return new NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE(config.apiUrl, config.apiKey);
+    return new BackendPaymentProvider(config.paymentServerUrl, { credential: config.paymentCredential });
 }

@@ -141,6 +141,13 @@ export async function printBootBanner(config: Config, moduleAddress: string): Pr
         `                       POST|GET|DELETE /api/watchtower/watches${config.allowForcedPoll ? "   POST /api/watchtower/poll (demo)" : ""}`,
     );
     console.log("                       arbitrum-sepolia is not watched on-chain: no 7702 probe yet");
+    if (config.nihilium === null) {
+        // Not mounted at all, so the app's seal fails on a 404 that names this variable.
+        console.log("    seal payments      not configured — set NIHILIUM_API_KEY to mount the route");
+    } else {
+        console.log(`    seal payments      ${config.nihilium.apiUrl}   at most ${config.nihilium.maxTokensPerHour} tokens/hour`);
+        console.log("                       POST /api/request-processor-token — holds the API key; the browser never does");
+    }
     console.log("");
 
     const derived = rows.filter((r) => !r.key.supplied);

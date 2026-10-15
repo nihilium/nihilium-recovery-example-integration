@@ -15,8 +15,7 @@ interface ImportMetaEnv {
     /** Overrides the plaintext demo mnemonic in `src/demo/mnemonic.ts`. */
     readonly VITE_RECORD_APPEND_SECRET?: string;
     readonly VITE_WATCH_REGISTER_SECRET?: string;
-    /** Required: the ceremony is paid, and there is no free mode. Ships to the browser on purpose. */
-    readonly VITE_NIHILIUM_API_KEY?: string;
+    // No VITE_NIHILIUM_API_KEY: the key is the server's (NIHILIUM_API_KEY in server/.env).
     readonly VITE_NIHILIUM_API_URL?: string;
     readonly VITE_NIHILIUM_EMAIL_SERVICE_URL?: string;
     /** Nihilium's processor cohort, not the guardian quorum. */

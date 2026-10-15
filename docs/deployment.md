@@ -47,7 +47,12 @@ WATCH_REGISTER_SECRET=...         # must equal the app's VITE_WATCH_REGISTER_SEC
 SEPOLIA_RPC_URL=...
 SOLANA_RPC_URL=https://api.devnet.solana.com
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
+NIHILIUM_API_KEY=...              # pays for seals; lives here and never in the app's env file
+NIHILIUM_MAX_TOKENS_PER_HOUR=60
 ```
+
+Without `NIHILIUM_API_KEY` the server does not mount `/api/request-processor-token`, the boot
+banner says `seal payments  not configured`, and the app's banner names the variable.
 
 `PORT`, `RECORDS_DIR` and `WATCHES_DIR` are pinned by the deploy (`-e`, which wins over the env
 file), so a copy of a local `server/.env` that sets them to `./.data/...` cannot move the state
@@ -64,7 +69,6 @@ balance.
 
 ```bash
 VITE_SERVER_URL=https://account-recovery.nihilium.io
-VITE_NIHILIUM_API_KEY=...
 VITE_RECORD_APPEND_SECRET=...     # same value as the server's RECORD_APPEND_SECRET
 VITE_WATCH_REGISTER_SECRET=...    # same value as the server's WATCH_REGISTER_SECRET
 # Optional, the defaults are public endpoints:
@@ -74,10 +78,15 @@ VITE_WATCH_REGISTER_SECRET=...    # same value as the server's WATCH_REGISTER_SE
 
 The deploy copies this to `app/.env.production.local` before building.
 
-**Everything in this file ends up in the public JavaScript**, including the API key and both write
-secrets. That is accepted for this demo, as it is for the API key locally: anyone can read them and
-use them to seal on the demo's key, append records, or register watches on the demo server. A real
-wallet keeps all three behind its own backend.
+**Everything in this file ends up in the public JavaScript**, including both write secrets. That is
+accepted for this demo: anyone can read them and use them to append records, register watches, or
+buy seals through the demo server's payment route. The last is bounded by
+`NIHILIUM_MAX_TOKENS_PER_HOUR`, and the Nihilium API key itself is not in the bundle. A real wallet
+authenticates these routes with its users' sessions instead.
+
+**Upgrading a deployment that predates the payment route:** move `VITE_NIHILIUM_API_KEY` out of this
+file and into `/root/envs/.env-recovery-backend` as `NIHILIUM_API_KEY`, then redeploy both. Rotate
+the key afterwards, since every bundle built before the move contains it.
 
 ### `/root/data/recovery-backend/` (server state)
 

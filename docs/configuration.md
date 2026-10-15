@@ -138,6 +138,9 @@ from wherever it keeps it. A real deployment holds no phrase that derives all of
 | `WATCHTOWER_POLL_SECONDS` | `15` | 300 in production — 15 so a scenario need not wait |
 | `DEMO_ALLOW_FORCED_POLL` | `true` | adds `POST /api/watchtower/poll`, which the watchtower's own API deliberately lacks |
 | `DEMO_FUND_MAX_WEI` | 0.02 ETH | ceiling on the relayer's funding route |
+| `NIHILIUM_API_KEY` | unset | **required to seal.** The ceremony is paid and there is no free mode. The key stays on the server: the app asks `POST /api/request-processor-token` for a single-use token per processor share, authenticated with the record append secret. Unset, the route is not mounted and the banner names this variable |
+| `NIHILIUM_API_URL` | `https://api.nihilium.io` | where the server buys tokens |
+| `NIHILIUM_MAX_TOKENS_PER_HOUR` | `60` | spend ceiling, one token per processor share. The caller credential reaches the browser, so this is the real bound on what the route can spend |
 | `LOG_STACKS` | unset | `1` for full stack traces |
 
 ### `app/.env.local`
@@ -149,8 +152,7 @@ from wherever it keeps it. A real deployment holds no phrase that derives all of
 | `VITE_SEPOLIA_RPC_URL`, `VITE_BUNDLER_URL` | public endpoints | |
 | `VITE_ARBITRUM_SEPOLIA_RPC_URL` | a public endpoint | the testnet the 7702-protected EOA lives on. Not `VITE_ARBITRUM_RPC_URL`, which is Arbitrum One and read for prices only |
 | `VITE_DEMO_MNEMONIC` | the phrase in `src/demo/mnemonic.ts` | the wallet's seed, not the roles' |
-| `VITE_RECORD_APPEND_SECRET`, `VITE_WATCH_REGISTER_SECRET` | **generated** | must match `server/.env` |
-| `VITE_NIHILIUM_API_KEY` | **required** | the ceremony is paid and there is no free mode; without it the recovery panel says so rather than degrading to a simulation. Reaches the browser, which is an accepted demo trade-off — it is a spend limit on sealing, not access to funds |
+| `VITE_RECORD_APPEND_SECRET`, `VITE_WATCH_REGISTER_SECRET` | **generated** | must match `server/.env`. The append secret also authenticates the app to the server's seal-payment route |
 | `VITE_NIHILIUM_API_URL`, `VITE_NIHILIUM_EMAIL_SERVICE_URL` | `api.nihilium.io`, `zkemail.nihilium.io` | where the ceremony runs, and where the DKIM registry check asks |
 
 ---

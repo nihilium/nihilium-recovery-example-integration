@@ -56,7 +56,8 @@ generating one matching pair of credentials for the record host, the relayer's f
 watchtower. Existing files are never overwritten; `npm run setup:env` recreates a missing one.
 
 The ceremony is **live and paid**: sealing buys one zkEmail seal per guardian, and recovering emails
-real people. It needs a Nihilium API key in `app/.env.local`; without one the recovery panel says so
+real people. It needs a Nihilium API key in `server/.env` (`NIHILIUM_API_KEY`). The key stays on the
+server, and the app pays through it, so it never reaches the browser. Without one the banner says so
 rather than running something free. Everything else has a working default: public RPCs, and server
 roles derived from `ROLE_MNEMONIC`. [docs/configuration.md](docs/configuration.md) covers all of it.
 

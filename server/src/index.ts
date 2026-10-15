@@ -1,9 +1,10 @@
 /**
  * The demo's server: every role that cannot run in a browser.
  *
- * Three services, each the SDK's own, behind Express: the **record host** (ciphertext and chain
- * context, never a seal), the **watchtower** (watches, never keys) and the **relayer** (gas, and the
- * operator's veto keys). This file is the only one that reads `config` — everything else is handed
+ * Four services, each the SDK's own, behind Express: the **record host** (ciphertext and chain
+ * context, never a seal), the **watchtower** (watches, never keys), the **relayer** (gas, and the
+ * operator's veto keys) and the **seal-payment proxy** (the Nihilium API key, so the browser never
+ * holds it). This file is the only one that reads `config` — everything else is handed
  * what it needs, which is what keeps the roles liftable into another codebase.
  *
  * The relayer is one `RelayerService` for all three chains, keyed by CAIP-2 namespace. Each chain
@@ -23,6 +24,7 @@ import { eip7702AccountAddress, recoveryModuleAddress } from "@nihilium/recovery
 import { recoveryVaultProgramIds } from "@nihilium/recovery-onchain-solana";
 import { hashCredential, type QuorumSigner, type WatchProbe } from "@nihilium/recovery-core";
 import { RelayerService, type RelayerChain } from "@nihilium/recovery-relayer";
+import { PAYMENT_TOKEN_PATH, PaymentTokenService, sharedSecretPayment } from "@nihilium/recovery-service";
 import {
     Eip7702RecoveryAccountSettlement,
     Erc7579RecoveryModuleSettlement,
@@ -208,6 +210,30 @@ app.all(/^\/api\/relay(\/.*)?$/, (req, res, next) => {
         .then(({ status, body }) => res.status(status).json(body))
         .catch(next);
 });
+
+// --- Seal payment ---------------------------------------------------------------------------------
+
+// The Nihilium API key stays here; the browser gets a token bound to one processor and one seal
+// request, which the processor accepts once. The app proves itself with the record append secret,
+// the same reuse the faucet makes. That secret does reach the browser, which is why the hourly
+// ceiling is the real bound on what this route can spend.
+if (config.nihilium !== null) {
+    const payments = new PaymentTokenService({
+        apiUrl: config.nihilium.apiUrl,
+        apiKey: config.nihilium.apiKey,
+        callers: sharedSecretPayment([hashCredential(config.recordAppendSecret)]),
+        maxTokensPerHour: config.nihilium.maxTokensPerHour,
+        log: (line) => logInfo("payments", line),
+    });
+    // `all`, not `post`: the handler answers anything else with a 405, which is how the app tells a
+    // mounted route from an absent one (404) without a request that could spend anything.
+    app.all(PAYMENT_TOKEN_PATH, (req, res, next) => {
+        void payments
+            .handle({ method: req.method, path: req.path, headers: req.headers as Record<string, string>, body: req.body })
+            .then(({ status, body }) => res.status(status).json(body))
+            .catch(next);
+    });
+}
 
 // --- The record host and the watchtower ---------------------------------------------------------
 

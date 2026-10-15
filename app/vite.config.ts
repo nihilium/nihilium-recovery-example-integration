@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type UserConfig } from "vite";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
@@ -16,7 +16,27 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
  */
 const linkedSdkPaths = ["**/recovery-sdk/**", "**/nihilium-core/**"];
 
-export default defineConfig({
+/**
+ * Variables that must never reach the bundle, because `src/demo/env.ts` reads `import.meta.env` as
+ * a whole object and Vite then inlines **every** `VITE_*` variable it finds, referenced or not. The
+ * Nihilium API key used to be one of them; it is the server's now. `npm run setup:env` moves an old
+ * one across, and this refuses to build or serve if one comes back.
+ */
+const FORBIDDEN_ENV = ["VITE_NIHILIUM_API_KEY"];
+
+export default defineConfig(({ mode }) => {
+    const env = loadEnv(mode, projectRoot, "VITE_");
+    const leaked = FORBIDDEN_ENV.filter((name) => (env[name] ?? "").trim() !== "");
+    if (leaked.length > 0) {
+        throw new Error(
+            `${leaked.join(", ")} is set for the app, and would ship in the public bundle. The Nihilium ` +
+                "API key belongs in server/.env as NIHILIUM_API_KEY; run `npm run setup:env` to move it.",
+        );
+    }
+    return config;
+});
+
+const config = {
     plugins: [react()],
     server: {
         port: 5173,
@@ -60,4 +80,4 @@ export default defineConfig({
             "@nihilium/recovery-watchtower-solana",
         ],
     },
-});
+} satisfies UserConfig;

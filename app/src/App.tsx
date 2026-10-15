@@ -33,6 +33,7 @@ import { useChainCoverage } from "./demo/useChainCoverage.js";
 import { useProtectAll } from "./demo/useProtectAll.js";
 import { ProtectAllDialog } from "./ui/ProtectAllDialog.js";
 import { useWatchtower } from "./demo/useWatchtower.js";
+import { useServerPayments } from "./demo/useServerPayments.js";
 import { Button, StatusMessage, TopBar } from "./ui/ds.js";
 import { AddressChip } from "./ui/AddressChip.js";
 
@@ -41,6 +42,7 @@ export function App() {
     // instance — under whatever is using them.
     const bindings = useMemo(() => createAppBindings(), []);
     const chains = useMemo(() => bindings.chains.all(), [bindings]);
+    const serverPayments = useServerPayments(bindings.env.serverUrl);
     // Visible but not selectable: the chain module and its tests stay live, only the tab is inert.
     // The reason is the tab's tooltip, not a flag here — see `COMING_SOON` in WalletSwitcher.tsx.
     const disabledChainIds = useMemo(() => new Set(["zcash-testnet"]), []);
@@ -204,6 +206,7 @@ export function App() {
                 <main className="app__main">
                     <DemoBanner
                         ceremonyReady={bindings.methods !== null}
+                        serverPayments={serverPayments}
                         onReset={() => setResetting(true)}
                     />
 

@@ -176,12 +176,14 @@ Every transcript line names the SDK call that produced it (`createVault`, `addCh
 The app runs the real ceremony: `ZKEmailConditionAdapter` over Nihilium's processor cohort. Sealing
 is **paid**, once per guardian; recovering sends real email to the guardians named and blocks until
 those humans reply — minutes, not seconds, and there is no fast path. The UI says so before anything
-is spent, and the API key reaching the browser (`NihiliumPaymentProviderClientAPIKEY_DO_NOT_USE`) is
-an accepted demo trade-off that belongs in visible copy, not a comment.
+is spent. The Nihilium API key is the **server's** (`NIHILIUM_API_KEY`): the app pays through
+`BackendPaymentProvider` → the server's `PaymentTokenService`, so the key never reaches the bundle.
+The app authenticates with the record append secret, which does, so `NIHILIUM_MAX_TOKENS_PER_HOUR`
+is the real spend bound.
 
 **There is no free mode to fall back to, deliberately.** A demo that quietly ran something free
 while presenting itself as real would teach the wrong thing about what a recovery costs. Without an
-API key there is no method to offer, and the recovery panel says exactly that — it does not
+API key on the server the payment route is not mounted, and the banner says exactly that — it does not
 degrade to a simulation.
 
 `DemoEmailConditionAdapter` and its cohort survive under `integration/conditions/simulated/` as

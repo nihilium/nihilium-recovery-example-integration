@@ -18,7 +18,8 @@ const adapterFactory = (): ConditionAdapter => ({}) as ConditionAdapter;
 const live = {
     emailServiceUrl: "https://example.invalid",
     apiUrl: "https://example.invalid",
-    apiKey: "test",
+    paymentServerUrl: "https://example.invalid",
+    paymentCredential: "test",
     network: 11155111,
     processorThreshold: 1,
     processorCount: 1,

@@ -13,22 +13,27 @@
  */
 export function DemoBanner({
     ceremonyReady,
+    serverPayments,
     onReset,
 }: {
     ceremonyReady: boolean;
+    /** Whether the server holds a Nihilium API key; `null` while unknown. */
+    serverPayments: boolean | null;
     onReset: () => void;
 }) {
     return (
         <div className="demo-banner" role="note">
             <span className="demo-banner__tag">Demo</span>
             <span className="demo-banner__text">
-                {ceremonyReady ? (
+                {!ceremonyReady ? (
+                    <strong>The live ceremony is not configured. Run npm run setup:env.</strong>
+                ) : serverPayments === false ? (
+                    <strong>The server cannot pay for seals. Set NIHILIUM_API_KEY in server/.env.</strong>
+                ) : (
                     <>
                         <strong>Live</strong> ceremony · sealing is paid · recovery emails your
                         guardians
                     </>
-                ) : (
-                    <strong>The live ceremony is not configured. Set VITE_NIHILIUM_API_KEY in app/.env.local.</strong>
                 )}
 
             </span>

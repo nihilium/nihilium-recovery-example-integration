@@ -144,6 +144,43 @@ if (filled.length > 0) {
     );
 }
 
+/**
+ * The Nihilium API key used to live in `app/.env.local` as `VITE_NIHILIUM_API_KEY`, which Vite
+ * inlines into the public bundle. It is the server's now (`NIHILIUM_API_KEY`), so a clone that
+ * predates the move has it carried across once and removed from the app file. The one exception to
+ * "existing files are never modified", and for the same reason as `fillEmpty`: leaving it would
+ * leave a spending credential where the build can ship it. The value is never printed.
+ */
+function migrateNihiliumKey() {
+    const appKey = readEnvFile(targets.app.file)["VITE_NIHILIUM_API_KEY"];
+    if (appKey === undefined || !existsSync(targets.server.file)) return;
+
+    const serverKey = readEnvFile(targets.server.file)["NIHILIUM_API_KEY"];
+    if (serverKey === undefined) {
+        const server = readFileSync(targets.server.file, "utf8");
+        const next = /^NIHILIUM_API_KEY=\s*$/m.test(server)
+            ? server.replace(/^NIHILIUM_API_KEY=\s*$/m, `NIHILIUM_API_KEY=${appKey}`)
+            : `${server.replace(/\n*$/, "\n")}\n# Moved from app/.env.local by setup-env.mjs.\nNIHILIUM_API_KEY=${appKey}\n`;
+        writeFileSync(targets.server.file, next, { mode: 0o600 });
+    }
+
+    const app = readFileSync(targets.app.file, "utf8").replace(
+        /^VITE_NIHILIUM_API_KEY=.*$/m,
+        "# VITE_NIHILIUM_API_KEY moved to server/.env as NIHILIUM_API_KEY: it must not ship in the bundle.",
+    );
+    writeFileSync(targets.app.file, app, { mode: 0o600 });
+
+    console.log(
+        serverKey === undefined
+            ? "\nMoved the Nihilium API key from app/.env.local to server/.env (NIHILIUM_API_KEY).\n"
+            : serverKey === appKey
+              ? "\nRemoved VITE_NIHILIUM_API_KEY from app/.env.local; server/.env already holds it.\n"
+              : "\nRemoved VITE_NIHILIUM_API_KEY from app/.env.local. server/.env holds a DIFFERENT " +
+                "NIHILIUM_API_KEY and keeps it; check which one you meant.\n",
+    );
+}
+migrateNihiliumKey();
+
 if (written.length > 0) {
     console.log(`\nWrote ${written.join(" and ")}.`);
     console.log(

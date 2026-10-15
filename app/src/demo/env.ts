@@ -44,14 +44,9 @@ export interface DemoEnv {
     watchRegisterSecret: string | undefined;
     nihilium: {
         /**
-         * Shipped to the browser, and that is an accepted demo trade-off rather than an oversight:
-         * it is a spend limit on sealing, not access to anyone's funds. A production wallet puts
-         * the payment provider behind its own backend.
-         *
-         * Without it there is no ceremony, and the recovery panel says so rather than the app
-         * quietly doing something free instead.
+         * No API key here, deliberately: it lives in `server/.env`, and sealing is paid through the
+         * server's payment route. Anything read from `import.meta.env` ships in the bundle.
          */
-        apiKey: string | undefined;
         apiUrl: string;
         emailServiceUrl: string;
         processorThreshold: number;
@@ -76,7 +71,6 @@ export function readEnv(): DemoEnv {
         recordAppendSecret: blank(env.VITE_RECORD_APPEND_SECRET),
         watchRegisterSecret: blank(env.VITE_WATCH_REGISTER_SECRET),
         nihilium: {
-            apiKey: blank(env.VITE_NIHILIUM_API_KEY),
             apiUrl: env.VITE_NIHILIUM_API_URL ?? "https://api.nihilium.io",
             emailServiceUrl: env.VITE_NIHILIUM_EMAIL_SERVICE_URL ?? "https://zkemail.nihilium.io",
             // Nihilium's processor cohort. One processor is published, so both default to 1.

@@ -58,6 +58,17 @@ const resumeKeys = str("RESUME_MEMBER_PRIVATE_KEYS", "")
 /** How many resume members exist when `.env` names none. Three, because a 1-of-1 quorum teaches nothing. */
 const DEFAULT_RESUME_MEMBERS = 3;
 
+/**
+ * Nihilium seal payment. The API key lives here and only here: the app pays through this server's
+ * `PaymentTokenService`, so nothing in the browser bundle can spend credits except through it.
+ */
+export interface NihiliumPaymentConfig {
+    apiUrl: string;
+    apiKey: string;
+    /** Spend ceiling. One token per processor share, so seals per hour times the processor count. */
+    maxTokensPerHour: number;
+}
+
 export interface Config {
     port: number;
     corsOrigin: string;
@@ -106,6 +117,11 @@ export interface Config {
      * funded look identical to a caller that does not check.
      */
     solana: SolanaConfig | null;
+    /**
+     * `null` when `NIHILIUM_API_KEY` is unset. The payment route is then not mounted, the boot
+     * banner says so, and the app's first seal fails with a message naming the variable.
+     */
+    nihilium: NihiliumPaymentConfig | null;
     /** Arbitrum Sepolia. Always on: a public RPC is the default, and the relayer routes are cheap. */
     arbitrumSepolia: ArbitrumSepoliaConfig;
 }
@@ -232,7 +248,18 @@ export const config: Config = {
     fundMaxWei: BigInt(str("DEMO_FUND_MAX_WEI", "20000000000000000")),
     solana: solanaConfig(),
     arbitrumSepolia: arbitrumSepoliaConfig(),
+    nihilium: nihiliumConfig(),
 };
+
+function nihiliumConfig(): NihiliumPaymentConfig | null {
+    const apiKey = str("NIHILIUM_API_KEY", "").trim();
+    if (apiKey === "") return null;
+    return {
+        apiUrl: str("NIHILIUM_API_URL", "https://api.nihilium.io"),
+        apiKey,
+        maxTokensPerHour: num("NIHILIUM_MAX_TOKENS_PER_HOUR", 60),
+    };
+}
 
 function arbitrumSepoliaConfig(): ArbitrumSepoliaConfig {
     return {
